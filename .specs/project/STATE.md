@@ -21,6 +21,7 @@ Memória persistente: decisões, blockers, lições, todos e ideias adiadas.
 | D13 | 2026-07-23 | F2: schema/client/migrate/seed Drizzle vivem em `api/src/db/` (mesmo pacote que valida `DATABASE_URL`); só o SQL gerado (`drizzle-kit generate`) fica em `db/migrations/` | `db/` já era reservado para isso desde F1; mantém migrations desacopladas do código da app, mas TS/env ficam onde já são testados/tipados |
 | D14 | 2026-07-23 | `createDb` força `timezone=UTC` na sessão Postgres (`pg.Pool({ options: "-c timezone=UTC" })`) | Code review de F4: `date_trunc('day', ...)` do bucket de 30d dependia implicitamente do timezone default do servidor (só "funcionava" pq `postgres:16-alpine` já vem em UTC); agora é explícito e testado (`test/db/client.test.ts`) |
 | D15 | 2026-07-23 | Removida a env `API_KEY` (reservada desde F1, nunca usada por nenhuma rota) | Code review de F4: só `INGEST_API_KEY` autentica `POST /api/v1/ingest`; manter as duas confundia operadores. Se surgir necessidade real de uma chave genérica (ex.: auth de admin numa feature futura), reintroduzir com nome específico ao seu uso |
+| D16 | 2026-07-23 | F5: tema **claro entra no escopo do v1** (não é mais adiado pra v2); toggle claro/escuro com **escuro como default** | Pedido do usuário durante a execução de F5. O design original já tem os dois temas mockados + um toggle "Modo escuro" — é extração fiel, não design novo. Reabre parte de T5.1 (extração focou só em dark) — ver T5.1b em `f5-design-system/spec.md` |
 
 ## Blockers
 
