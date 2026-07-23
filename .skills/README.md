@@ -9,7 +9,9 @@ da instalação global em `~/.claude/skills`.
 | `tlc-spec-driven` | Spec-Driven Development. Gera e mantém a estrutura `.specs/` (PROJECT/ROADMAP/STATE + spec/design/tasks por feature). É a espinha dorsal do planejamento. |
 | `qa-expert` | Estratégia e execução de QA/testes (casos de teste, métricas, cobertura). Apoia a constraint de TDD ≥80% do projeto. |
 | `webapp-testing` | Testes de web app local com Playwright (screenshots, logs, verificação de UI). Apoia os fluxos E2E (F7). |
+| `ui-ux-pro-max` | Inteligência de design UI/UX (estilos, paletas, tipografia, guidelines). Constraint de design do projeto — orienta F5 (design system) e F6 (dashboard). |
 
-> Fonte: copiadas de `~/.claude/skills/` em uma máquina de desenvolvimento. `qa-expert`
+> Fonte: copiadas de `~/.claude/skills/` (e, no caso de `ui-ux-pro-max`, do plugin
+> `ui-ux-pro-max-skill` em `~/.claude/plugins/`) numa máquina de desenvolvimento. `qa-expert`
 > era um symlink para `~/.agents/skills/qa-expert` e foi copiada com o conteúdo real.
 > Para usar como skills ativas, referencie/instale conforme o mecanismo de skills do seu ambiente.
