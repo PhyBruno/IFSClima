@@ -331,5 +331,32 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
         { bucket: new Date("2026-07-23T14:00:00.000Z"), avg: 20, min: 20, max: 20, sum: null },
       ]);
     });
+
+    it("bucket com leitura mas sem valor para a métrica pedida → avg/min/max/sum null (sensor falhou)", async () => {
+      await repository.insertIgnoreConflicts([
+        row({
+          timestamp: new Date("2026-07-23T14:10:00.000Z"),
+          temperatureC: 20,
+          rainMm: null,
+        }),
+      ]);
+
+      const buckets = await repository.aggregate(
+        "main",
+        "rain_mm",
+        new Date("2026-07-23T00:00:00.000Z"),
+        "hour",
+      );
+
+      expect(buckets).toEqual([
+        {
+          bucket: new Date("2026-07-23T14:00:00.000Z"),
+          avg: null,
+          min: null,
+          max: null,
+          sum: null,
+        },
+      ]);
+    });
   });
 });

@@ -1,13 +1,5 @@
 import { sql } from "drizzle-orm";
-import {
-  bigserial,
-  index,
-  pgTable,
-  real,
-  text,
-  timestamp,
-  unique,
-} from "drizzle-orm/pg-core";
+import { bigserial, index, pgTable, real, text, timestamp, unique } from "drizzle-orm/pg-core";
 
 /**
  * Estação meteorológica. Preparado para multi-estação (D3), mas o v1 usa
