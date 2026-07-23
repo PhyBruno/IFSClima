@@ -70,7 +70,7 @@ Os serviços sobem nesta ordem, aguardando saúde uns dos outros:
 2. `api` — só inicia após `db` estar `healthy` (`depends_on: condition: service_healthy`); expõe `GET /health`.
 3. `web` — só inicia após `api` estar `healthy`.
 
-Se faltar uma variável obrigatória (`DATABASE_URL`, `API_KEY` ou `INGEST_API_KEY`), a `api` falha o boot com uma mensagem clara listando o campo e o motivo (validação Zod em `src/config/env.ts`).
+Se faltar uma variável obrigatória (`DATABASE_URL` ou `INGEST_API_KEY`), a `api` falha o boot com uma mensagem clara listando o campo e o motivo (validação Zod em `src/config/env.ts`).
 
 No boot, a `api` também roda as **migrations Drizzle** (`db/migrations/`) e o **seed** da estação `main` automaticamente, antes de aceitar tráfego (idempotente — seguro em todo restart). Veja `db/README.md` para o schema completo.
 
@@ -88,7 +88,7 @@ npm run dev:api           # http://localhost:3000 (requer .env — veja abaixo)
 npm run dev:web            # http://localhost:5173
 ```
 
-A api local também valida env via Zod; exporte pelo menos `DATABASE_URL` e `API_KEY` (veja `.env.example`) antes de `npm run dev:api`.
+A api local também valida env via Zod; exporte pelo menos `DATABASE_URL` e `INGEST_API_KEY` (veja `.env.example`) antes de `npm run dev:api`.
 
 ## Scripts agregados (raiz)
 
@@ -115,7 +115,6 @@ Veja `.env.example` para a lista completa e valores de exemplo (sintéticos). Re
 | `POSTGRES_PORT` | db | Porta publicada no host (padrão 5432) |
 | `API_PORT` | api | Porta publicada no host e usada pelo Fastify (padrão 3000) |
 | `NODE_ENV` | api/web | `development` \| `test` \| `production` |
-| `API_KEY` | api | Reservada (F1) — não usada pelo endpoint de ingestão; ver `INGEST_API_KEY` |
 | `INGEST_API_KEY` | api | Segredo da estação para o header `X-API-Key` de `POST /api/v1/ingest` (F3) — ver `docs/ingest-api.md` |
 | `MAX_BATCH` | api | Teto de leituras por lote em `POST /api/v1/ingest` (padrão 5000; acima disso → `413`) |
 | `WEB_PORT` | web | Porta publicada no host (padrão 5173) |

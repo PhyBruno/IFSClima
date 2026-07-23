@@ -27,12 +27,20 @@ describe("db client (T2.1 — conectividade)", () => {
     await expect(closeDb(pool)).resolves.toBeUndefined();
   });
 
+  it("createDb força timezone UTC na sessão, independente do default do servidor (F4 — date_trunc consistente)", async () => {
+    const { db, pool } = createDb(testPg.databaseUrl);
+
+    const result = await db.execute(sql`show timezone`);
+
+    expect(result.rows[0]).toEqual({ TimeZone: "UTC" });
+
+    await closeDb(pool);
+  });
+
   it("getDb() lê DATABASE_URL do env validado (F1) e cacheia a conexão", async () => {
     const originalDatabaseUrl = process.env.DATABASE_URL;
-    const originalApiKey = process.env.API_KEY;
     const originalIngestApiKey = process.env.INGEST_API_KEY;
     process.env.DATABASE_URL = testPg.databaseUrl;
-    process.env.API_KEY = process.env.API_KEY ?? "whs_test_ABC123";
     process.env.INGEST_API_KEY = process.env.INGEST_API_KEY ?? "whs_test_ABC123";
 
     try {
@@ -47,7 +55,6 @@ describe("db client (T2.1 — conectividade)", () => {
       expect(result.rows[0]).toEqual({ ok: 1 });
     } finally {
       process.env.DATABASE_URL = originalDatabaseUrl;
-      process.env.API_KEY = originalApiKey;
       process.env.INGEST_API_KEY = originalIngestApiKey;
     }
   });

@@ -280,7 +280,6 @@ describe("buildApp() sem nenhuma option explícita (default de produção — la
   let testPg: TestPostgres;
   let app: FastifyInstance;
   let originalDatabaseUrl: string | undefined;
-  let originalApiKey: string | undefined;
   let originalIngestApiKey: string | undefined;
 
   beforeAll(async () => {
@@ -293,10 +292,8 @@ describe("buildApp() sem nenhuma option explícita (default de produção — la
     // chamada de fato — ver `lazyDrizzleReadingRepository`/`getIngestApiKey`/
     // `getMaxBatch` em app.ts. Este é o caminho real usado por server.ts.
     originalDatabaseUrl = process.env.DATABASE_URL;
-    originalApiKey = process.env.API_KEY;
     originalIngestApiKey = process.env.INGEST_API_KEY;
     process.env.DATABASE_URL = testPg.databaseUrl;
-    process.env.API_KEY = process.env.API_KEY ?? API_KEY;
     process.env.INGEST_API_KEY = API_KEY;
 
     app = buildApp();
@@ -311,7 +308,6 @@ describe("buildApp() sem nenhuma option explícita (default de produção — la
     const { pool: lazyPool } = getDb();
     await closeDb(lazyPool);
     process.env.DATABASE_URL = originalDatabaseUrl;
-    process.env.API_KEY = originalApiKey;
     process.env.INGEST_API_KEY = originalIngestApiKey;
     await testPg.stop();
   }, 30000);

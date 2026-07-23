@@ -8,13 +8,8 @@ const envSchema = z.object({
       required_error: "DATABASE_URL é obrigatória (ex.: postgres://user:pass@host:5432/db)",
     })
     .min(1, "DATABASE_URL é obrigatória (ex.: postgres://user:pass@host:5432/db)"),
-  API_KEY: z
-    .string({ required_error: "API_KEY é obrigatória (segredo da estação, ex.: whs_test_ABC123)" })
-    .min(1, "API_KEY é obrigatória (segredo da estação, ex.: whs_test_ABC123)"),
   // F3: chave de autenticação do endpoint de ingestão (POST /api/v1/ingest),
-  // nome alinhado ao contrato de design.md/spec.md. Mantida separada de
-  // API_KEY (F1) para não reabrir o escopo já fechado de F1/F2 — ver
-  // decisão registrada em docs/ingest-api.md.
+  // nome alinhado ao contrato de design.md/spec.md.
   INGEST_API_KEY: z
     .string({
       required_error:
