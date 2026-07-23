@@ -1,0 +1,72 @@
+import Fastify, { type FastifyInstance } from "fastify";
+import { parseEnv } from "./config/env.js";
+import { getDb } from "./db/client.js";
+import { healthRoute } from "./routes/health.js";
+import { ingestRoute } from "./routes/ingest.js";
+import {
+  DrizzleReadingRepository,
+  type ReadingRepository,
+} from "./repositories/reading-repository.js";
+import { MAX_BATCH as SCHEMA_MAX_BATCH } from "./schemas/ingest.js";
+import { createIngestService } from "./services/ingest-service.js";
+
+export interface BuildAppOptions {
+  /** F3: injeção de dependência do repositório (fake em teste, Drizzle real em produção). */
+  readingRepository?: ReadingRepository;
+  /** F3: chave esperada no header `X-API-Key`. Default: lê `INGEST_API_KEY` do env (lazy). */
+  ingestApiKey?: string;
+  /** F3: teto de itens por lote para a resposta 413 (ING-08). Default: env `MAX_BATCH`, nunca acima do teto do schema Zod. */
+  maxBatch?: number;
+}
+
+/**
+ * `ReadingRepository` que só toca `getDb()` (que valida env) quando um
+ * método é de fato chamado — preserva `buildApp()` "testável sem porta/DB"
+ * (F1) mesmo registrando a rota de ingestão por padrão.
+ */
+function lazyDrizzleReadingRepository(): ReadingRepository {
+  let cached: ReadingRepository | undefined;
+  const resolve = (): ReadingRepository => {
+    cached ??= new DrizzleReadingRepository(getDb().db);
+    return cached;
+  };
+
+  return {
+    ensureStation: (id) => resolve().ensureStation(id),
+    insertIgnoreConflicts: (rows) => resolve().insertIgnoreConflicts(rows),
+  };
+}
+
+/**
+ * Cria (mas não sobe) uma instância Fastify configurada.
+ * Testável sem abrir porta — use `app.inject(...)` nos testes.
+ *
+ * Sem `options`, usa dependências de produção resolvidas de forma
+ * preguiçosa (`getDb()`/`parseEnv()` só são chamadas quando uma requisição
+ * de fato chega em `/api/v1/ingest`) — chamar `buildApp()` continua seguro
+ * em testes que não configuram `DATABASE_URL`/`INGEST_API_KEY` (ex.:
+ * `test/app.test.ts`, `test/health.test.ts`).
+ */
+export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
+  const app = Fastify({
+    logger: true,
+  });
+
+  const readingRepository = options.readingRepository ?? lazyDrizzleReadingRepository();
+  const ingestService = createIngestService(readingRepository);
+
+  const getIngestApiKey =
+    options.ingestApiKey !== undefined
+      ? () => options.ingestApiKey as string
+      : () => parseEnv().INGEST_API_KEY;
+
+  const getMaxBatch =
+    options.maxBatch !== undefined
+      ? () => options.maxBatch as number
+      : () => Math.min(parseEnv().MAX_BATCH, SCHEMA_MAX_BATCH);
+
+  app.register(healthRoute);
+  app.register(ingestRoute, { ingestService, getIngestApiKey, getMaxBatch });
+
+  return app;
+}
