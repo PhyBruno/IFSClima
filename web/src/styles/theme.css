@@ -1,0 +1,51 @@
+/**
+ * Design tokens — fonte única de valores de cor do tema (dark).
+ *
+ * Extraídos por render real do design original em `docs/design-extraction.md`
+ * (T5.1). Mudar um valor aqui propaga para `tailwind.config.js` (que mapeia
+ * classes utilitárias para estas vars) e para qualquer CSS que as consuma
+ * diretamente — não duplicar hex em outro lugar.
+ *
+ * Tema claro está fora de escopo do v1 (ver .specs/features/f5-design-system/spec.md).
+ */
+
+:root {
+  /* Superfícies — docs/design-extraction.md §1.1 */
+  --color-surface-page: #0d1117;
+  --color-surface-sidebar: #12161d;
+  --color-surface-card: #161b22;
+  --color-surface-chip: #1c2129;
+
+  /* Bordas — §1.2 (3 tons distintos, não intercambiáveis) */
+  --color-border-default: #262c35;
+  --color-border-subtle: #1e232b;
+  --color-border-dashed: #2a313c;
+
+  /* Texto — §1.3 */
+  --color-text-primary: #f3f4f6;
+  --color-text-secondary: #d1d5db;
+  --color-text-tertiary: #9ca3af;
+  --color-text-muted: #6b7280;
+  --color-text-faint: #4b5563;
+  --color-text-disabled: #3f4854;
+
+  /* Marca — §1.5 */
+  --color-brand-primary: #16a34a;
+
+  /* Estado / feedback — §1.5. Nota: cor de delta é por direção (up/down/flat),
+     não por sensor — ver StatCard em docs/design-extraction.md §1.5. */
+  --color-status-online: #4ade80;
+  --color-status-positive: #16a34a;
+  --color-status-negative: #dc2626;
+  --color-status-neutral: #9ca3af;
+
+  /* Acentos por sensor — §1.4. Padronizamos o item ativo de navegação em
+     verde (--color-brand-primary); o azul #3b82f6 da bottom-nav mobile do
+     mock original é uma inconsistência do design a NÃO replicar (§1.5). */
+  --color-sensor-temperature: #f97316;
+  --color-sensor-humidity: #0ea5e9;
+  --color-sensor-pressure: #14b8a6;
+  --color-sensor-uv: #a855f7;
+  --color-sensor-rain: #06b6d4;
+  --color-sensor-wind: #10b981;
+}
