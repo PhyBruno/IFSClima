@@ -28,6 +28,7 @@ _(nenhum)_
 
 - `Estacao Meteorologica (standalone).html` é uma página **bundled** (design real dentro de `<script type="__bundler/template">` como JSON + assets base64). Extração do layout deve ser feita por subagent parseando o template, não por leitura direta.
 - Paleta observada no design: tema escuro `#0d1117`/`#161b22`/`#1e232b`, bordas `#262c35`, texto `#f3f4f6`/`#9ca3af`; acentos por sensor: laranja `#f97316`, azul `#0ea5e9`, teal `#14b8a6`, roxo `#a855f7`, verde `#16a34a`/`#4ade80`.
+- Alguns sandboxes remotos bloqueiam `docker pull` (registry CDN fora da allowlist de rede), o que impede rodar os testes de integração baseados em Testcontainers ali. Nesses casos, validar a lógica apontando temporariamente `test/db/helpers/testPostgres.ts` para um Postgres 16 local (pacote `postgresql-16` do apt) é uma forma de confirmar a suíte antes do commit — desde que o arquivo seja restaurado à versão com Testcontainers antes de commitar (é o que roda em CI/outras máquinas).
 
 ## Todos
 
@@ -44,7 +45,9 @@ Fase de PLANEJAMENTO concluída (2026-07-23): todas as specs de F1–F7 escritas
 Próxima fase (aguardando OK do usuário para implementar):
 - [ ] Implementar F1 (via subagents, TDD)
 - [x] Implementar F2 (schema `stations`/`readings` Drizzle, migrations, seed `main`, runner no boot do container)
-- [ ] Implementar F3 → F4 → F5 → F6 → F7
+- [x] Implementar F3 (endpoint `POST /api/v1/ingest`, auth `X-API-Key`, idempotência, rejeição por item)
+- [x] Implementar F4 (endpoints `GET /readings/latest` e `GET /readings/series`, agregação `date_trunc` por hora/dia)
+- [ ] Implementar F5 → F6 → F7
 
 ## Deferred Ideas
 
