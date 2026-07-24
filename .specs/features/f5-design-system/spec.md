@@ -105,10 +105,14 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
   Tests: teste de smoke que classes/tokens resolvem; snapshot de tokens.
   Traceability: DS-01.
 
-- **T5.3 — Componentes base (TDD/RTL)** (depends: T5.2) `[P por componente]`
-  What: `Card`, `StatCard` (por sensor), `ChartCard`, `PeriodSelector` (24h/7d/30d), `StatusPill`, `EmptyState`.
-  Tests: render, props, estado nulo, a11y (roles/labels), responsividade.
-  Traceability: DS-03, DS-04, DS-05, DS-06.
+- **T5.3 — Componentes base (TDD/RTL)** (depends: T5.2, T5.2b) `[P por componente]`
+  What: `Card`, `StatCard` (por sensor), `ChartCard`, `PeriodSelector` (24h/7d/30d), `StatusPill`,
+  `EmptyState`, **`ThemeToggle`** (switch "Modo escuro" que seta `data-theme` na raiz — ver
+  mecanismo em `web/src/styles/theme.css`, T5.2b; atualização pós-D16, não estava na lista
+  original de componentes).
+  Tests: render, props, estado nulo, a11y (roles/labels), responsividade, troca de tema (o
+  `ThemeToggle` alterna o atributo `data-theme` no elemento raiz).
+  Traceability: DS-03, DS-04, DS-05, DS-06, DS-07.
 
 - **T5.4 — Rota/página de demo (galeria de componentes)** (depends: T5.3)
   What: `/__ui` que renderiza todos os componentes p/ comparação visual com o original.
