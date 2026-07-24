@@ -9,10 +9,11 @@ build/
 # Test / coverage
 coverage/
 
-# Env (segredos locais — nunca commitar; use .env.example)
+# Env (segredos locais — nunca commitar; use .env.example/.env.prod.example)
 .env
 .env.local
 .env.*.local
+.env.prod
 
 # Logs
 *.log
