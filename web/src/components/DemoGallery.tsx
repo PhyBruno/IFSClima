@@ -45,10 +45,24 @@ const BAR_SERIES: ChartSeries[] = [
   { label: "Chuva", color: "#14b8a6", points: [0, 0.5, 3.2, 1.1, 0, 0.8] },
 ];
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  component,
+  children,
+}: {
+  title: string;
+  component: string;
+  children: ReactNode;
+}) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+        {/* Nome técnico do componente exibido como símbolo de código (não é
+            prosa em inglês) — mantém a utilidade da galeria de comparação sem
+            deixar o título de seção em inglês puro. */}
+        <code className="text-xs text-text-muted">{`<${component} />`}</code>
+      </div>
       {children}
     </section>
   );
@@ -66,11 +80,11 @@ export function DemoGallery() {
       </header>
 
       <div className="flex flex-col gap-10">
-        <Section title="Card">
-          <Card>Card padrão (padding md, sem sombra)</Card>
+        <Section title="Cartão base" component="Card">
+          <Card>Cartão padrão (padding md, sem sombra)</Card>
         </Section>
 
-        <Section title="StatCard">
+        <Section title="Cartão de sensor" component="StatCard">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {SENSORS.map((item) => (
               <StatCard
@@ -96,7 +110,7 @@ export function DemoGallery() {
           </div>
         </Section>
 
-        <Section title="ChartCard">
+        <Section title="Cartão de gráfico" component="ChartCard">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <ChartCard
               title="Temperatura x Umidade (24h)"
@@ -109,7 +123,7 @@ export function DemoGallery() {
           </div>
         </Section>
 
-        <Section title="PeriodSelector">
+        <Section title="Seletor de período" component="PeriodSelector">
           <div className="flex flex-col gap-3">
             <PeriodSelector
               options={[
@@ -124,7 +138,7 @@ export function DemoGallery() {
           </div>
         </Section>
 
-        <Section title="StatusPill">
+        <Section title="Indicador de status" component="StatusPill">
           <div className="flex flex-wrap items-center gap-4">
             <StatusPill variant="card" online lastReadingAt="14:32" />
             <StatusPill variant="card" online={false} lastReadingAt="09:10" />
@@ -133,7 +147,7 @@ export function DemoGallery() {
           </div>
         </Section>
 
-        <Section title="EmptyState">
+        <Section title="Estado vazio" component="EmptyState">
           <EmptyState
             title="Nenhum dado no período"
             description="Ajuste o intervalo de datas ou os sensores selecionados"

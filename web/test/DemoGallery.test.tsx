@@ -53,6 +53,25 @@ describe("DemoGallery", () => {
     expect(screen.getByText("Estação offline")).toBeInTheDocument();
   });
 
+  it("usa títulos de seção em português (não os nomes técnicos em inglês)", () => {
+    render(<DemoGallery />);
+
+    for (const title of [
+      "Cartão base",
+      "Cartão de sensor",
+      "Cartão de gráfico",
+      "Seletor de período",
+      "Indicador de status",
+      "Estado vazio",
+    ]) {
+      expect(screen.getByRole("heading", { level: 2, name: title })).toBeInTheDocument();
+    }
+    // Nenhum título de seção (h2) deve ser um nome técnico em inglês puro.
+    for (const englishName of ["StatCard", "ChartCard", "PeriodSelector", "StatusPill", "EmptyState"]) {
+      expect(screen.queryByRole("heading", { level: 2, name: englishName })).not.toBeInTheDocument();
+    }
+  });
+
   it("renderiza um EmptyState avulso como exemplo de uso genérico", () => {
     render(<DemoGallery />);
 
