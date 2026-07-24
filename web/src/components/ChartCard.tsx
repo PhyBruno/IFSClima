@@ -74,6 +74,33 @@ import { EmptyState } from "./EmptyState";
  *   Reduzido pra 1/1.7 (repouso/ativo) e a borda do anel pra 0.8 — o alvo de
  *   hover/foco continua com raio 3.5 (só a área de toque, não o desenho).
  *
+ * - **Marcador só no ponto ativo (3ª revisão — feedback do usuário +
+ *   consulta de design, 2026-07-24)**: o anel deixou de ser SEMPRE visível
+ *   em todo ponto — agora só aparece (raio 1.7, mesmo visual de antes no
+ *   estado "ativo") quando aquele ponto específico está em hover/foco. Duas
+ *   razões, não só estética: (1) em séries densas (`range=7d` — até 168
+ *   buckets horários), com pontos espaçados por menos de 1 unidade de
+ *   viewBox, os anéis quase se tocavam e formavam uma textura por cima da
+ *   própria linha, atrapalhando a leitura; (2) o alvo de hover/foco
+ *   (`chart-point-hit`) ganhou `onClick` (ver abaixo) — em telas de toque,
+ *   onde não existe "hover" de verdade, o círculo permanentemente visível
+ *   sugeria uma interação (tocar pra ver o valor) que `onMouseEnter`/
+ *   `onFocus` sozinhos não entregavam de forma confiável; ativar por toque
+ *   (`onClick`) e só então mostrar o marcador é mais honesto com o que
+ *   realmente acontece em touch. Deliberadamente NÃO foram mantidos
+ *   marcadores fixos nos extremos (opção descartada pelo usuário do
+ *   produto) — só o ponto ativo, nunca mais de um por vez (mesmo `activeKey`
+ *   de sempre).
+ *
+ * - **`onClick` no alvo de hover/foco (feedback do usuário, 2026-07-24)**:
+ *   `chart-point-hit`/`chart-bar-hit` só reagiam a mouse (`onMouseEnter`/
+ *   `onMouseLeave`) e foco por teclado (`onFocus`/`onBlur`) — em touch, nada
+ *   disso dispara de forma confiável (não há "hover", e foco por toque é
+ *   inconsistente entre navegadores móveis). `onClick` alterna
+ *   (`toggleActive`) o mesmo estado `activeKey`/`activeIndex` que o hover já
+ *   usa — funciona em mouse (clique) E em toque (tap), sem duplicar lógica
+ *   de tooltip/marcador, que já reage a esse mesmo estado.
+ *
  * - **Gap das barras proporcional ao nº de pontos (feedback do usuário,
  *   2026-07-24)**: `barGap` era um valor FIXO em unidades do viewBox (4),
  *   independente de quantos pontos a série tinha. Com poucos pontos (ex. 4)
@@ -315,18 +342,32 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
                 onHover(null);
               }
 
+              // Toque (mobile): sem "hover" de verdade, `onClick` alterna
+              // o mesmo estado que mouse/teclado já usam (ver docstring).
+              function toggleActive() {
+                if (isActive) {
+                  deactivate();
+                } else {
+                  activate();
+                }
+              }
+
               return (
                 <g key={key}>
-                  <circle
-                    cx={c.x}
-                    cy={c.y}
-                    r={isActive ? 1.7 : 1}
-                    style={{ fill: "var(--color-surface-card)" }}
-                    stroke={s.color}
-                    strokeWidth={0.8}
-                    aria-hidden="true"
-                  />
-                  {/* Alvo de hover/foco maior que o marcador visível — mais fácil de acertar com o mouse, e focável via Tab (acessibilidade por teclado). */}
+                  {/* Marcador só no ponto ATIVO (ver docstring, "Marcador só
+                      no ponto ativo") — nenhum anel no estado de repouso. */}
+                  {isActive ? (
+                    <circle
+                      cx={c.x}
+                      cy={c.y}
+                      r={1.7}
+                      style={{ fill: "var(--color-surface-card)" }}
+                      stroke={s.color}
+                      strokeWidth={0.8}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  {/* Alvo de hover/foco/toque, sempre presente mesmo sem marcador visível — mais fácil de acertar com o mouse, focável via Tab, e clicável/tocável (ver docstring, "onClick no alvo de hover/foco"). */}
                   <circle
                     cx={c.x}
                     cy={c.y}
@@ -339,6 +380,7 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
                     onMouseLeave={deactivate}
                     onFocus={activate}
                     onBlur={deactivate}
+                    onClick={toggleActive}
                   />
                 </g>
               );
@@ -400,6 +442,17 @@ function BarChart({ points, color, pointLabels, unit, onHover }: BarChartProps) 
           onHover(null);
         }
 
+        // Toque (mobile): mesma razão do LineChart (ver docstring do
+        // componente, "onClick no alvo de hover/foco") — a barra em si já é
+        // o alvo visível, só falta reagir a tap.
+        function toggleActive() {
+          if (isActive) {
+            deactivate();
+          } else {
+            activate();
+          }
+        }
+
         return (
           <rect
             key={index}
@@ -417,6 +470,7 @@ function BarChart({ points, color, pointLabels, unit, onHover }: BarChartProps) 
             onMouseLeave={deactivate}
             onFocus={activate}
             onBlur={deactivate}
+            onClick={toggleActive}
           />
         );
       })}

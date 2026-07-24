@@ -263,7 +263,7 @@ describe("ChartCard", () => {
   });
 
   describe("pontos e tooltip no hover/foco (feedback do usuário, 2026-07-24)", () => {
-    it("variant='line': desenha um <circle> visível por ponto de dado", () => {
+    it("variant='line': em repouso, só os alvos de hover/foco existem (nenhum marcador visível)", () => {
       render(
         <ChartCard
           title="Chart"
@@ -273,8 +273,69 @@ describe("ChartCard", () => {
       );
 
       const svg = screen.getByTestId("chart-svg");
-      // 4 pontos: 4 círculos visíveis + 4 alvos de hover/foco (maiores, invisíveis).
-      expect(svg.querySelectorAll("circle")).toHaveLength(8);
+      // 4 pontos: só os 4 alvos de hover/foco (invisíveis) — sem hover, nenhum
+      // anel visível é desenhado (feedback do usuário + consulta de design,
+      // 2026-07-24: "marcador só no ponto ativo").
+      expect(svg.querySelectorAll("circle")).toHaveLength(4);
+    });
+
+    it("variant='line': hover num ponto desenha o marcador visível SÓ naquele ponto", () => {
+      render(
+        <ChartCard
+          title="Chart"
+          variant="line"
+          series={[{ label: "Temperatura", color: "#f97316", points: [20, 22, 21, 24] }]}
+        />,
+      );
+
+      const hitTargets = screen.getAllByTestId("chart-point-hit");
+      fireEvent.mouseEnter(hitTargets[1]!);
+
+      // 4 alvos de hit + 1 marcador visível (só o ponto ativo).
+      expect(screen.getByTestId("chart-svg").querySelectorAll("circle")).toHaveLength(5);
+
+      fireEvent.mouseLeave(hitTargets[1]!);
+      expect(screen.getByTestId("chart-svg").querySelectorAll("circle")).toHaveLength(4);
+    });
+
+    it("variant='line': clique/toque (onClick) alterna o tooltip — mesmo alvo do mouse/teclado (feedback do usuário, 2026-07-24: suporte a touch)", () => {
+      render(
+        <ChartCard
+          title="Temperatura"
+          variant="line"
+          unit="°C"
+          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
+          pointLabels={["14:00", "15:00"]}
+        />,
+      );
+
+      const hitTargets = screen.getAllByTestId("chart-point-hit");
+      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+
+      fireEvent.click(hitTargets[1]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
+
+      fireEvent.click(hitTargets[1]!);
+      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+    });
+
+    it("variant='bar': clique/toque (onClick) alterna o tooltip da barra", () => {
+      render(
+        <ChartCard
+          title="Chuva"
+          variant="bar"
+          unit="mm"
+          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 2.4] }]}
+          pointLabels={["14:00", "15:00"]}
+        />,
+      );
+
+      const bars = screen.getAllByTestId("chart-bar-hit");
+      fireEvent.click(bars[1]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 2.4mm");
+
+      fireEvent.click(bars[1]!);
+      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
     });
 
     it("variant='line': hover num ponto mostra tooltip com o rótulo de tempo e o valor+unidade", () => {
