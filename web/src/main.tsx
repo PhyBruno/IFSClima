@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { DemoGallery } from "./components/DemoGallery";
+import { QueryProvider } from "./providers/QueryProvider";
 import "./index.css";
 
 const rootElement = document.getElementById("root");
@@ -16,6 +17,8 @@ const RootComponent = window.location.pathname === "/__ui" ? DemoGallery : App;
 
 createRoot(rootElement).render(
   <StrictMode>
-    <RootComponent />
+    <QueryProvider>
+      <RootComponent />
+    </QueryProvider>
   </StrictMode>,
 );
