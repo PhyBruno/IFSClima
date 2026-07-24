@@ -10,17 +10,20 @@ import { emptyLatestFixture, latestFixture } from "../fixtures/readings";
 
 /**
  * `DashboardPage` (F6 T6.5) — monta `Sidebar`/`BottomNav` (navegação) +
- * header (título + indicador de status) + `SensorGrid` (T6.2/T6.4) +
- * `ChartsSection` (T6.3/T6.4), reaproveitando-os tal como estão (nenhum dos
- * três é reaberto aqui). MSW mocka os dois endpoints de F4 com as mesmas
- * fixtures já usadas pelos testes de T6.1-T6.4.
+ * header (título) + `SensorGrid` (T6.2/T6.4) + `ChartsSection` (T6.3/T6.4),
+ * reaproveitando-os tal como estão (nenhum dos três é reaberto aqui). MSW
+ * mocka os dois endpoints de F4 com as mesmas fixtures já usadas pelos
+ * testes de T6.1-T6.4.
  *
  * **Regra de offline (feedback do usuário, 2026-07-24):** a estação só é
  * "offline" sem conexão nas ÚLTIMAS 24H (`age_seconds > 86400`) ou sem
  * nenhuma leitura ainda (`timestamp === null`) — nunca por um erro
  * transitório de fetch isolado (isso é `ConnectionBanner` dentro de
- * `SensorGrid`/`ChartsSection`, um indicador DIFERENTE). E só existe UM
- * indicador na tela, e só quando offline — nunca um texto "Estação online".
+ * `SensorGrid`/`ChartsSection`, um indicador DIFERENTE, com seu próprio
+ * `role="status"`). Só existe UM indicador na tela: uma notificação
+ * flutuante no canto superior direito (`StatusPill` variante `card`, texto
+ * "Offline" — nunca "Reconectando…", que não existe fora de
+ * `ConnectionBanner`).
  */
 let originalTZ: string | undefined;
 beforeAll(() => {
@@ -64,15 +67,15 @@ describe("DashboardPage", () => {
     expect(screen.queryAllByRole("link", { name: /histórico/i })).toHaveLength(0);
   });
 
-  it("status: leitura recente (< 24h) não mostra nenhum indicador — nunca 'Estação online'", async () => {
+  it("status: leitura recente (< 24h) não mostra nenhuma notificação de offline", async () => {
     renderPage();
 
     await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
-    expect(screen.queryByText(/estação online/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/estação offline/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/offline/i)).not.toBeInTheDocument();
   });
 
-  it("status: leitura com mais de 24h (age_seconds > 86400) mostra 'Estação offline' + horário no header", async () => {
+  it("status: leitura com mais de 24h (age_seconds > 86400) mostra notificação flutuante 'Offline' + horário, sem 'reconectando'", async () => {
     server.use(
       http.get("/api/v1/readings/latest", () =>
         HttpResponse.json({ ...latestFixture, age_seconds: 90_000 }),
@@ -81,32 +84,49 @@ describe("DashboardPage", () => {
 
     renderPage();
 
-    const header = screen.getByRole("banner");
-    await waitFor(() => expect(within(header).getByText(/estação offline/i)).toBeInTheDocument());
+    const notification = await screen.findByRole("status");
+    expect(within(notification).getByText("Offline")).toBeInTheDocument();
     // latestFixture.timestamp = 2026-07-23T14:30:00.000Z, TZ=UTC no teste.
-    expect(within(header).getByText("14:30")).toBeInTheDocument();
+    expect(within(notification).getByText(/última leitura: 14:30/i)).toBeInTheDocument();
+    expect(within(notification).queryByText(/reconectando/i)).not.toBeInTheDocument();
   });
 
-  it("status: nenhuma leitura ainda (timestamp null) mostra 'Estação offline' no header, sem horário", async () => {
+  it("status: notificação de offline é flutuante (fixed, canto superior direito), não inline no header", async () => {
+    server.use(
+      http.get("/api/v1/readings/latest", () =>
+        HttpResponse.json({ ...latestFixture, age_seconds: 90_000 }),
+      ),
+    );
+
+    renderPage();
+
+    const notification = await screen.findByRole("status");
+    expect(notification).toHaveClass("fixed", "right-4", "top-4");
+    // Não é filho do <header> (que só tem o título).
+    const header = screen.getByRole("banner");
+    expect(within(header).queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("status: nenhuma leitura ainda (timestamp null) mostra notificação 'Offline', sem horário", async () => {
     server.use(http.get("/api/v1/readings/latest", () => HttpResponse.json(emptyLatestFixture)));
 
     renderPage();
 
-    const header = screen.getByRole("banner");
-    await waitFor(() => expect(within(header).getByText(/estação offline/i)).toBeInTheDocument());
-    expect(within(header).queryByText(/última leitura/i)).not.toBeInTheDocument();
+    const notification = await screen.findByRole("status");
+    expect(within(notification).getByText("Offline")).toBeInTheDocument();
+    expect(within(notification).queryByText(/última leitura/i)).not.toBeInTheDocument();
   });
 
-  it("status: erro transitório de fetch (sem dado em cache) NÃO aciona o indicador do header — quem comunica é o ConnectionBanner de SensorGrid", async () => {
+  it("status: erro transitório de fetch (sem dado em cache) NÃO aciona a notificação de offline — quem comunica é o ConnectionBanner de SensorGrid", async () => {
     server.use(http.get("/api/v1/readings/latest", () => new HttpResponse(null, { status: 500 })));
 
     renderPage();
 
-    // Só UM indicador na tela: o `ConnectionBanner` de `SensorGrid` (fora do
-    // header) — não a regra de 24h do header, que não tem dado pra avaliar.
-    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
-    const header = screen.getByRole("banner");
-    expect(within(header).queryByText(/estação offline/i)).not.toBeInTheDocument();
+    // Só UM indicador na tela: o `ConnectionBanner` de `SensorGrid` (que diz
+    // "Reconectando…") — não a notificação de offline baseada em 24h, que
+    // não tem dado pra avaliar.
+    const status = await screen.findByRole("status");
+    expect(within(status).getByText(/reconectando/i)).toBeInTheDocument();
   });
 
   it("mantém o título visível mesmo se /latest e /series falharem (nunca tela branca — UI-10)", async () => {

@@ -4,11 +4,14 @@ import { DASHBOARD_NAV_ICON, HISTORICO_NAV_ICON, type DashboardRoute } from "./S
  * `BottomNav` (F6 T6.5 — docs/design-extraction.md §5.5) — navegação fixa do
  * mobile (`md:hidden`; ver `Sidebar` para o equivalente desktop). Mesmas
  * decisões de `Sidebar`: "Histórico" (F8) desabilitado/sem link, e nenhum
- * indicador de conexão aqui (vive só no header, ver `DashboardPage`).
+ * indicador de conexão aqui (vive numa notificação flutuante própria, ver
+ * `DashboardPage`).
  *
  * `position: fixed` no rodapé — o chamador (`DashboardPage`) precisa reservar
  * espaço (`padding-bottom`) no conteúdo pra não ficar coberto por esta barra
- * em telas mobile.
+ * em telas mobile. Fundo **sólido** (não translúcido — feedback do usuário,
+ * 2026-07-24: conteúdo do dashboard não pode aparecer "por trás"/misturado
+ * com a barra ao rolar a página).
  */
 export interface BottomNavProps {
   active: DashboardRoute;
@@ -19,7 +22,7 @@ export function BottomNav({ active, className = "" }: BottomNavProps) {
   return (
     <nav
       aria-label="Navegação principal"
-      className={`fixed inset-x-0 bottom-0 z-10 flex border-t border-border-default bg-surface-sidebar/95 px-2 py-1.5 md:hidden ${className}`.trim()}
+      className={`fixed inset-x-0 bottom-0 z-10 flex border-t border-border-default bg-surface-sidebar px-2 py-1.5 md:hidden ${className}`.trim()}
     >
       <a
         href="/"
