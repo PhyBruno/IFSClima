@@ -6,13 +6,21 @@ import { http, HttpResponse } from "msw";
 import { server } from "../mocks/server";
 import { createQueryClient } from "../../src/providers/QueryProvider";
 import { DashboardPage } from "../../src/pages/DashboardPage";
-import { latestFixture } from "../fixtures/readings";
+import { emptyLatestFixture, latestFixture } from "../fixtures/readings";
 
 /**
- * `DashboardPage` (F6 T6.5) — monta header (título + status global) +
- * `SensorGrid` (T6.2/T6.4) + `ChartsSection` (T6.3/T6.4), reaproveitando-os
- * tal como estão (nenhum dos dois é reaberto aqui). MSW mocka os dois
- * endpoints de F4 com as mesmas fixtures já usadas pelos testes de T6.1-T6.4.
+ * `DashboardPage` (F6 T6.5) — monta `Sidebar`/`BottomNav` (navegação) +
+ * header (título + indicador de status) + `SensorGrid` (T6.2/T6.4) +
+ * `ChartsSection` (T6.3/T6.4), reaproveitando-os tal como estão (nenhum dos
+ * três é reaberto aqui). MSW mocka os dois endpoints de F4 com as mesmas
+ * fixtures já usadas pelos testes de T6.1-T6.4.
+ *
+ * **Regra de offline (feedback do usuário, 2026-07-24):** a estação só é
+ * "offline" sem conexão nas ÚLTIMAS 24H (`age_seconds > 86400`) ou sem
+ * nenhuma leitura ainda (`timestamp === null`) — nunca por um erro
+ * transitório de fetch isolado (isso é `ConnectionBanner` dentro de
+ * `SensorGrid`/`ChartsSection`, um indicador DIFERENTE). E só existe UM
+ * indicador na tela, e só quando offline — nunca um texto "Estação online".
  */
 let originalTZ: string | undefined;
 beforeAll(() => {
@@ -46,32 +54,58 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("button", { name: "Últimas 24h" })).toBeInTheDocument();
   });
 
-  it("status global: mostra 'Estação online' + horário da última leitura quando /latest responde com sucesso", async () => {
+  it("navegação: Sidebar (desktop) e BottomNav (mobile) presentes, Dashboard marcado como página atual", () => {
+    renderPage();
+
+    const dashboardLinks = screen.getAllByRole("link", { name: /dashboard/i });
+    expect(dashboardLinks).toHaveLength(2); // Sidebar + BottomNav
+    dashboardLinks.forEach((link) => expect(link).toHaveAttribute("aria-current", "page"));
+    // "Histórico" (F8) aparece nos dois, mas desabilitado — nenhum link real.
+    expect(screen.queryAllByRole("link", { name: /histórico/i })).toHaveLength(0);
+  });
+
+  it("status: leitura recente (< 24h) não mostra nenhum indicador — nunca 'Estação online'", async () => {
+    renderPage();
+
+    await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+    expect(screen.queryByText(/estação online/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/estação offline/i)).not.toBeInTheDocument();
+  });
+
+  it("status: leitura com mais de 24h (age_seconds > 86400) mostra 'Estação offline' + horário no header", async () => {
+    server.use(
+      http.get("/api/v1/readings/latest", () =>
+        HttpResponse.json({ ...latestFixture, age_seconds: 90_000 }),
+      ),
+    );
+
     renderPage();
 
     const header = screen.getByRole("banner");
-    await waitFor(() => expect(within(header).getByText(/estação online/i)).toBeInTheDocument());
+    await waitFor(() => expect(within(header).getByText(/estação offline/i)).toBeInTheDocument());
     // latestFixture.timestamp = 2026-07-23T14:30:00.000Z, TZ=UTC no teste.
     expect(within(header).getByText("14:30")).toBeInTheDocument();
   });
 
-  it("status global: mostra 'Estação offline' quando /latest falha já na primeira busca (sem dado em cache)", async () => {
+  it("status: nenhuma leitura ainda (timestamp null) mostra 'Estação offline' no header, sem horário", async () => {
+    server.use(http.get("/api/v1/readings/latest", () => HttpResponse.json(emptyLatestFixture)));
+
+    renderPage();
+
+    const header = screen.getByRole("banner");
+    await waitFor(() => expect(within(header).getByText(/estação offline/i)).toBeInTheDocument());
+    expect(within(header).queryByText(/última leitura/i)).not.toBeInTheDocument();
+  });
+
+  it("status: erro transitório de fetch (sem dado em cache) NÃO aciona o indicador do header — quem comunica é o ConnectionBanner de SensorGrid", async () => {
     server.use(http.get("/api/v1/readings/latest", () => new HttpResponse(null, { status: 500 })));
 
     renderPage();
 
-    // "Estação offline" aparece tanto no pill do header quanto no
-    // `ConnectionBanner` de `SensorGrid` (mesmo erro de /latest) — escopado
-    // ao `<header>` (role `banner`) para não ser ambíguo.
+    // Só UM indicador na tela: o `ConnectionBanner` de `SensorGrid` (fora do
+    // header) — não a regra de 24h do header, que não tem dado pra avaliar.
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
     const header = screen.getByRole("banner");
-    await waitFor(() => expect(within(header).getByText(/estação offline/i)).toBeInTheDocument());
-  });
-
-  it("status global: não mostra nenhum indicador durante o carregamento inicial (sem dado em cache ainda)", () => {
-    renderPage();
-
-    const header = screen.getByRole("banner");
-    expect(within(header).queryByText(/estação online/i)).not.toBeInTheDocument();
     expect(within(header).queryByText(/estação offline/i)).not.toBeInTheDocument();
   });
 
@@ -83,9 +117,8 @@ describe("DashboardPage", () => {
 
     renderPage();
 
-    const header = screen.getByRole("banner");
-    expect(within(header).getByRole("heading", { level: 1, name: /estação meteorológica/i })).toBeInTheDocument();
-    await waitFor(() => expect(within(header).getByText(/estação offline/i)).toBeInTheDocument());
+    expect(screen.getByRole("heading", { level: 1, name: /estação meteorológica/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
   });
 
   it("referência: usa a fixture sintética latestFixture (não dados reais da estação)", () => {
