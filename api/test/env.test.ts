@@ -5,7 +5,6 @@ const validEnv = {
   NODE_ENV: "test",
   PORT: "3000",
   DATABASE_URL: "postgres://estacao:senha_exemplo@localhost:5432/estacao_meteorologica",
-  API_KEY: "whs_test_ABC123",
   INGEST_API_KEY: "whs_test_ABC123",
 };
 
@@ -17,15 +16,14 @@ describe("parseEnv", () => {
       NODE_ENV: "test",
       PORT: 3000,
       DATABASE_URL: "postgres://estacao:senha_exemplo@localhost:5432/estacao_meteorologica",
-      API_KEY: "whs_test_ABC123",
       INGEST_API_KEY: "whs_test_ABC123",
       MAX_BATCH: 5000,
     });
   });
 
   it("aplica defaults para NODE_ENV, PORT e MAX_BATCH quando ausentes", () => {
-    const { DATABASE_URL, API_KEY, INGEST_API_KEY } = validEnv;
-    const env = parseEnv({ DATABASE_URL, API_KEY, INGEST_API_KEY });
+    const { DATABASE_URL, INGEST_API_KEY } = validEnv;
+    const env = parseEnv({ DATABASE_URL, INGEST_API_KEY });
 
     expect(env.NODE_ENV).toBe("development");
     expect(env.PORT).toBe(3000);
@@ -37,13 +35,6 @@ describe("parseEnv", () => {
     delete withoutDatabaseUrl.DATABASE_URL;
 
     expect(() => parseEnv(withoutDatabaseUrl)).toThrowError(/DATABASE_URL/);
-  });
-
-  it("lança erro com mensagem clara quando falta variável obrigatória (API_KEY)", () => {
-    const withoutApiKey: Record<string, string> = { ...validEnv };
-    delete withoutApiKey.API_KEY;
-
-    expect(() => parseEnv(withoutApiKey)).toThrowError(/API_KEY/);
   });
 
   it("lança erro quando PORT não é numérico", () => {

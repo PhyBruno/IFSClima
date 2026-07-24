@@ -11,7 +11,11 @@ export type Database = NodePgDatabase<typeof schema>;
  * de integração (que apontam para um Postgres efêmero via Testcontainers).
  */
 export function createDb(databaseUrl: string): { db: Database; pool: pg.Pool } {
-  const pool = new pg.Pool({ connectionString: databaseUrl });
+  // Força UTC na sessão independente do timezone default do servidor
+  // Postgres (design.md de F4 — agregação de séries em `date_trunc` assume
+  // UTC; sem isso, `date_trunc('day', ...)` mudaria de fronteira se o
+  // timezone default do servidor/sessão não fosse UTC).
+  const pool = new pg.Pool({ connectionString: databaseUrl, options: "-c timezone=UTC" });
   const db = drizzle(pool, { schema });
 
   return { db, pool };

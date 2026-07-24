@@ -1,0 +1,157 @@
+/**
+ * Design tokens — fonte única de valores de cor/sombra dos dois temas.
+ *
+ * Extraídos por render real do design original em `docs/design-extraction.md`
+ * (T5.1 dark, T5.1b light). Mudar um valor aqui propaga para
+ * `tailwind.config.js` (que mapeia classes utilitárias para estas vars) e
+ * para qualquer CSS que as consuma diretamente — não duplicar hex em outro
+ * lugar.
+ *
+ * Mecanismo de troca de tema (T5.2b): escuro é o default, vive no `:root`.
+ * Tema claro ativa sobrescrevendo as mesmas vars num bloco
+ * `[data-theme="light"]`, que deve casar com um atributo `data-theme="light"`
+ * setado num elemento ancestral (tipicamente `<html>`). O componente de
+ * toggle em si (que seta esse atributo) é responsabilidade de T5.3 — este
+ * arquivo só prepara a infraestrutura de CSS.
+ */
+
+:root {
+  /* Superfícies — docs/design-extraction.md §1.1 */
+  --color-surface-page: #0d1117;
+  --color-surface-sidebar: #12161d;
+  --color-surface-card: #161b22;
+  --color-surface-chip: #1c2129;
+  /* surface.status-panel: a extração dark original (§1-7) não deu nome a
+     este token, mas §5.4 já descreve o painel "Online" da sidebar como
+     reaproveitando surface.card ("card (surface.card, radius 12px, padding
+     10px)") — reaproveitado aqui, não é um valor novo. */
+  --color-surface-status-panel: #161b22;
+  /* surface.table-header: idem — §5.6 diz explicitamente que o cabeçalho da
+     tabela (Histórico desktop) no dark usa "fundo surface.sidebar". */
+  --color-surface-table-header: #12161d;
+
+  /* Bordas — §1.2 (3 tons distintos, não intercambiáveis) */
+  --color-border-default: #262c35;
+  --color-border-subtle: #1e232b;
+  --color-border-dashed: #2a313c;
+  /* border.frame: §8.2 confirma que no dark o frame externo ("janela" do
+     app) usa a MESMA border.default — só no light ganha um tom próprio
+     (#e2e4e7). Reaproveitado, não é valor novo. */
+  --color-border-frame: #262c35;
+
+  /* Texto — §1.3 */
+  --color-text-primary: #f3f4f6;
+  --color-text-secondary: #d1d5db;
+  --color-text-tertiary: #9ca3af;
+  --color-text-muted: #6b7280;
+  --color-text-faint: #4b5563;
+  --color-text-disabled: #3f4854;
+
+  /* Marca — §1.5 (idêntica nos dois temas) */
+  --color-brand-primary: #16a34a;
+
+  /* Estado / feedback — §1.5. Nota: cor de delta é por direção (up/down/flat),
+     não por sensor — ver StatCard em docs/design-extraction.md §1.5. */
+  --color-status-online-dot: #4ade80;
+  --color-status-online-text: #4ade80;
+  --color-status-positive: #16a34a;
+  --color-status-negative: #dc2626;
+  --color-status-neutral: #9ca3af;
+  /* status.online: o dark (§1.5) não distingue dot de texto (só existe uma
+     linha "status.online.text #4ade80" cobrindo os dois usos) — por isso os
+     dois tokens acima têm o MESMO valor no dark. O light (§8.5) já distingue
+     de verdade (#22c55e dot / #16a34a texto) — ver bloco [data-theme="light"]. */
+
+  /* Navegação — §1.5 (item ativo da sidebar) */
+  --color-nav-active-bg: rgba(22, 163, 74, 0.16);
+  --color-nav-active-text: #4ade80;
+
+  /* Acentos por sensor — §1.4. Padronizamos o item ativo de navegação em
+     verde (--color-brand-primary); o azul #3b82f6 da bottom-nav mobile do
+     mock original é uma inconsistência do design a NÃO replicar (§1.5, §8.5). */
+  --color-sensor-temperature: #f97316;
+  --color-sensor-humidity: #0ea5e9;
+  --color-sensor-pressure: #14b8a6;
+  --color-sensor-uv: #a855f7;
+  --color-sensor-rain: #06b6d4;
+  --color-sensor-wind: #10b981;
+
+  /* Toggle "Modo escuro" — §8.7. Os dois estados (off/on) do switch são
+     confirmados no arquivo lado a lado (off no mockup light, on no mockup
+     dark), mas representam a POSIÇÃO do switch, não o tema ativo da página —
+     nada nos indica que o trilho/knob devam mudar de cor conforme o tema, só
+     conforme o switch está ligado ou não. Por isso ficam definidos uma única
+     vez aqui em :root (sem override em [data-theme="light"]), decisão de
+     estrutura desta tarefa, não um valor inventado. */
+  --color-toggle-track-off: #e6e8eb;
+  --color-toggle-track-on: #16a34a;
+  --color-toggle-knob: #ffffff;
+  --shadow-toggle-off: 0 1px 2px rgba(0, 0, 0, 0.15);
+  --shadow-toggle-on: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  /* Shadows — §3.3 (dark) / §8.8 (light). No dark, NENHUM card interno tem
+     sombra (StatCard/ChartCard/tabela são flat, só borda 1px) — por isso
+     --shadow-card é "none" aqui. Só o container externo ("janela") tem
+     sombra real nos dois temas. */
+  --shadow-frame: 0 24px 48px rgba(15, 23, 42, 0.3);
+  --shadow-card: none;
+}
+
+[data-theme="light"] {
+  /* Superfícies — §8.1 */
+  --color-surface-page: #f7f8f9;
+  --color-surface-sidebar: #ffffff;
+  --color-surface-card: #ffffff;
+  /* surface.chip: propositalmente NÃO sobrescrito aqui. §8.1 documenta que o
+     light não tem um "chip neutro" de ícone equivalente ao #1c2129 do dark —
+     cada chip de ícone do StatCard nasce colorido com o `bg` pastel do
+     próprio sensor (sensor.*, ver §1.4/§8.4), que é um token por-sensor fora
+     do escopo desta tarefa (T5.3 decide como o StatCard consome isso). Não
+     há um hex documentado pra sobrescrever surface.chip no light, então não
+     inventamos um. */
+  --color-surface-status-panel: #f7f8f9;
+  --color-surface-table-header: #fafbfb;
+
+  /* Bordas — §8.2 */
+  --color-border-default: #e6e8eb;
+  --color-border-subtle: #f0f1f2;
+  /* border.dashed: usamos o valor visto NA INSTÂNCIA REAL do card "Vento"
+     dentro do dashboard mockado (#d8dade), não o do swatch genérico da
+     galeria "Estados do sistema" (#e6e8eb) — §8.2 recomenda explicitamente
+     preferir o valor em contexto de produto real. */
+  --color-border-dashed: #d8dade;
+  --color-border-frame: #e2e4e7;
+
+  /* Texto — §8.3 */
+  --color-text-primary: #111827;
+  --color-text-secondary: #374151;
+  --color-text-tertiary: #6b7280;
+  --color-text-muted: #9ca3af;
+  --color-text-faint: #c1c5cb;
+  /* text.disabled: §8.3 não encontrou um 6º tom claramente distinto no light
+     (o texto mais apagado observado no light É o próprio text.faint,
+     #c1c5cb) e pede explicitamente para não inventar um novo hex sem
+     necessidade real. Por isso NÃO sobrescrevemos aqui — fica como decisão
+     em aberto para T5.3 se algum componente precisar de um tom ainda mais
+     discreto que text.faint no light. */
+
+  /* Estado / feedback — §8.5 (aqui SIM dot e texto divergem de verdade) */
+  --color-status-online-dot: #22c55e;
+  --color-status-online-text: #16a34a;
+
+  /* Navegação — §8.5. Wash sólido, diferente do rgba() translúcido do dark. */
+  --color-nav-active-bg: #ecfdf5;
+  --color-nav-active-text: #16a34a;
+
+  /* brand.primary, status.positive/negative/neutral e sensor.* não mudam no
+     light (confirmado por render em §8.4/§8.5 — "mesmo hex do dark") — sem
+     override necessário, herdam do :root. */
+
+  /* Shadows — §8.8. shadow.frame usa aqui o valor DESKTOP (alpha 0.14). O
+     mock também documenta um alpha diferente pro mobile (0.18), mas
+     introduzir uma CSS var nova só pra essa nuance seria sobre-engenharia
+     nesta tarefa — se T5.3 decidir que vale a pena, pode tratar a variação
+     mobile com uma media query pontual sobre este mesmo --shadow-frame. */
+  --shadow-frame: 0 24px 48px rgba(15, 23, 42, 0.14);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
+}

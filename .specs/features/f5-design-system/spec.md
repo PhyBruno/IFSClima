@@ -8,7 +8,12 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
 
 - [ ] Extrair tokens exatos do design bundled e registrá-los (Tailwind theme + CSS vars).
 - [ ] Biblioteca de componentes base (Card, StatCard, Chart wrapper, PeriodSelector, etc.) testada.
-- [ ] Tema escuro fiel ao original, responsivo (mobile-first).
+- [ ] Tema escuro **e claro** fiéis ao original, com toggle (escuro como default), responsivo (mobile-first).
+
+> **Atualização (2026-07-23, pedido do usuário):** o tema claro estava listado como fora de
+> escopo ("é v2") na primeira versão desta spec. O usuário pediu para incluir os dois temas já
+> no v1 — o design original já tem um toggle "Modo escuro" e mockups completos em ambos os temas,
+> então isso é extração fiel, não trabalho novo de design. Ver D16 em `STATE.md`.
 
 ## Out of Scope
 
@@ -16,7 +21,6 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
 | --- | --- |
 | Montagem do dashboard final | É F6 |
 | Consumo da API | É F6 |
-| Tema claro | Design é dark; claro é v2 |
 
 ---
 
@@ -82,6 +86,7 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
 | DS-04 | P1: estado nulo nos componentes | Tasks | Pending |
 | DS-05 | P1: responsividade mobile-first | Tasks | Pending |
 | DS-06 | a11y: contraste + reduced-motion | Tasks | Pending |
+| DS-07 | P1: toggle claro/escuro, default escuro, tokens fiéis aos dois temas | Tasks | Pending |
 
 ---
 
@@ -89,20 +94,25 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
 
 > Extração e UI via subagent + `ui-ux-pro-max`. Revisão `ecc:react-reviewer` + `ecc:a11y-architect`. TDD (RTL) nos componentes.
 
-- **T5.1 — Extrair design do bundle (subagent + ui-ux-pro-max)**
+- **T5.1 — Extrair design do bundle (subagent + ui-ux-pro-max)** ✅ concluída
   What: subagent parseia o `<script type="__bundler/template">` do `Estacao Meteorologica (standalone).html`, decodifica o layout, extrai tokens e inventário de componentes/telas. Produz `docs/design-extraction.md` + screenshot de referência.
   Done when: tokens e estrutura documentados e batendo com o original.
   Traceability: DS-01, DS-02.
+  **T5.1b — Extração do tema CLARO (pendente, pós-mudança de escopo)**: a primeira passada de T5.1 focou no tema escuro (era o único em escopo na hora); com DS-07 agora em escopo, falta extrair os tokens do tema claro com o mesmo rigor (render real + `getComputedStyle`) — `docs/design-extraction.md` hoje só tem os tokens claros vistos "de relance" (ex.: banner de erro, `bg` claro por sensor), não uma varredura completa de superfícies/bordas/texto claros.
 
 - **T5.2 — Tailwind theme + CSS vars (tokens)** (depends: T5.1)
   What: `tailwind.config`, `theme.css` (vars), mapeamento de cores de acento por sensor.
   Tests: teste de smoke que classes/tokens resolvem; snapshot de tokens.
   Traceability: DS-01.
 
-- **T5.3 — Componentes base (TDD/RTL)** (depends: T5.2) `[P por componente]`
-  What: `Card`, `StatCard` (por sensor), `ChartCard`, `PeriodSelector` (24h/7d/30d), `StatusPill`, `EmptyState`.
-  Tests: render, props, estado nulo, a11y (roles/labels), responsividade.
-  Traceability: DS-03, DS-04, DS-05, DS-06.
+- **T5.3 — Componentes base (TDD/RTL)** (depends: T5.2, T5.2b) `[P por componente]`
+  What: `Card`, `StatCard` (por sensor), `ChartCard`, `PeriodSelector` (24h/7d/30d), `StatusPill`,
+  `EmptyState`, **`ThemeToggle`** (switch "Modo escuro" que seta `data-theme` na raiz — ver
+  mecanismo em `web/src/styles/theme.css`, T5.2b; atualização pós-D16, não estava na lista
+  original de componentes).
+  Tests: render, props, estado nulo, a11y (roles/labels), responsividade, troca de tema (o
+  `ThemeToggle` alterna o atributo `data-theme` no elemento raiz).
+  Traceability: DS-03, DS-04, DS-05, DS-06, DS-07.
 
 - **T5.4 — Rota/página de demo (galeria de componentes)** (depends: T5.3)
   What: `/__ui` que renderiza todos os componentes p/ comparação visual com o original.

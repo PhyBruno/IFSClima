@@ -45,7 +45,9 @@ describe("schema stations + readings (T2.2 — constraints)", () => {
   it("DB-01: rejeita insert duplicado por (station_id, timestamp)", async () => {
     const ts = new Date("2026-07-23T15:00:00.000Z");
 
-    await testPg.db.insert(readings).values({ stationId: "main", timestamp: ts, temperatureC: 24.7 });
+    await testPg.db
+      .insert(readings)
+      .values({ stationId: "main", timestamp: ts, temperatureC: 24.7 });
 
     await expect(
       testPg.db.insert(readings).values({ stationId: "main", timestamp: ts, temperatureC: 25.1 }),

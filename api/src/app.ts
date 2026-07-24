@@ -3,15 +3,20 @@ import { parseEnv } from "./config/env.js";
 import { getDb } from "./db/client.js";
 import { healthRoute } from "./routes/health.js";
 import { ingestRoute } from "./routes/ingest.js";
+import { readingsRoute } from "./routes/readings.js";
 import {
   DrizzleReadingRepository,
   type ReadingRepository,
 } from "./repositories/reading-repository.js";
 import { MAX_BATCH as SCHEMA_MAX_BATCH } from "./schemas/ingest.js";
 import { createIngestService } from "./services/ingest-service.js";
+import { createReadingsService } from "./services/readings-service.js";
+
+/** Estação única do v1 (D3) — usada tanto pelo default de ingestão quanto pelas rotas de leitura (F4). */
+export const DEFAULT_STATION_ID = "main";
 
 export interface BuildAppOptions {
-  /** F3: injeção de dependência do repositório (fake em teste, Drizzle real em produção). */
+  /** F3/F4: injeção de dependência do repositório (fake em teste, Drizzle real em produção). */
   readingRepository?: ReadingRepository;
   /** F3: chave esperada no header `X-API-Key`. Default: lê `INGEST_API_KEY` do env (lazy). */
   ingestApiKey?: string;
@@ -34,6 +39,9 @@ function lazyDrizzleReadingRepository(): ReadingRepository {
   return {
     ensureStation: (id) => resolve().ensureStation(id),
     insertIgnoreConflicts: (rows) => resolve().insertIgnoreConflicts(rows),
+    findLatest: (stationId) => resolve().findLatest(stationId),
+    aggregate: (stationId, metric, since, bucketUnit) =>
+      resolve().aggregate(stationId, metric, since, bucketUnit),
   };
 }
 
@@ -54,6 +62,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   const readingRepository = options.readingRepository ?? lazyDrizzleReadingRepository();
   const ingestService = createIngestService(readingRepository);
+  const readingsService = createReadingsService(readingRepository);
 
   const getIngestApiKey =
     options.ingestApiKey !== undefined
@@ -67,6 +76,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.register(healthRoute);
   app.register(ingestRoute, { ingestService, getIngestApiKey, getMaxBatch });
+  app.register(readingsRoute, { readingsService, stationId: DEFAULT_STATION_ID });
 
   return app;
 }
