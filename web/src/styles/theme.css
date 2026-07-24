@@ -21,6 +21,13 @@
   --color-surface-sidebar: #12161d;
   --color-surface-card: #161b22;
   --color-surface-chip: #1c2129;
+  /* surface.skeleton (feedback do usuário, 2026-07-24): placeholder de
+     carregamento (`Skeleton.tsx`) reaproveitava surface.chip — no light isso
+     ficava escuro (chip não tem override lá, ver comentário abaixo), um
+     bloco preto flutuando numa página clara. Token próprio: no dark aponta
+     pro MESMO chip (sem mudança visual aqui), no light usa o cinza já
+     existente de border.default (não é hex novo, ver bloco light). */
+  --color-surface-skeleton: var(--color-surface-chip);
   /* surface.status-panel: a extração dark original (§1-7) não deu nome a
      este token, mas §5.4 já descreve o painel "Online" da sidebar como
      reaproveitando surface.card ("card (surface.card, radius 12px, padding
@@ -123,6 +130,10 @@
      inventamos um. */
   --color-surface-status-panel: #f7f8f9;
   --color-surface-table-header: #fafbfb;
+  /* surface.skeleton: reaproveita o mesmo cinza de border.default (abaixo)
+     em vez de um hex novo — contraste suave e visível contra surface.card
+     branco, sem inventar mais um token de cor pro light. */
+  --color-surface-skeleton: var(--color-border-default);
 
   /* Bordas — §8.2 */
   --color-border-default: #e6e8eb;

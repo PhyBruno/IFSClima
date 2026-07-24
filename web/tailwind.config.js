@@ -26,6 +26,10 @@ export default {
           chip: "var(--color-surface-chip)",
           "status-panel": "var(--color-surface-status-panel)",
           "table-header": "var(--color-surface-table-header)",
+          // Placeholder de carregamento (feedback do usuário, 2026-07-24) —
+          // ver theme.css: dark aponta pro chip neutro, light usa o cinza de
+          // border.default.
+          skeleton: "var(--color-surface-skeleton)",
         },
         border: {
           DEFAULT: "var(--color-border-default)",

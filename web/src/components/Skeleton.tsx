@@ -15,6 +15,14 @@ import type { HTMLAttributes } from "react";
  * leitor de tela não deve anunciar N blocos "vazios" enquanto os dados
  * carregam, só o conteúdo final quando chegar (mesmo princípio já usado no
  * ícone decorativo de `EmptyState.tsx`).
+ *
+ * **`bg-surface-skeleton`, não `bg-surface-chip` (revisão — feedback do
+ * usuário, 2026-07-24)**: `surface.chip` não tem override no tema claro (não
+ * existe um "chip neutro" documentado lá, ver `theme.css`) — um placeholder
+ * de carregamento com essa classe ficava escuro mesmo no light (visível ao
+ * trocar o período do `ChartsSection`, que troca pra skeleton a cada nova
+ * busca). `surface.skeleton` é um token próprio: dark aponta pro mesmo chip
+ * (sem mudança ali), light usa o cinza de `border.default`.
  */
 export interface SkeletonProps extends HTMLAttributes<HTMLDivElement> {
   className?: string;
@@ -24,7 +32,7 @@ export function Skeleton({ className = "", ...rest }: SkeletonProps) {
   return (
     <div
       aria-hidden="true"
-      className={`animate-pulse rounded-10 bg-surface-chip ${className}`.trim()}
+      className={`animate-pulse rounded-10 bg-surface-skeleton ${className}`.trim()}
       {...rest}
     />
   );

@@ -18,6 +18,9 @@ export const expectedColorTokens: Record<string, Record<string, string>> = {
     // comentário em theme.css (§5.4 e §5.6 respectivamente).
     "status-panel": "#161b22",
     "table-header": "#12161d",
+    // Placeholder de carregamento (feedback do usuário, 2026-07-24): no dark
+    // aponta pro chip neutro via var() — não duplica o hex, ver theme.css.
+    skeleton: "var(--color-surface-chip)",
   },
   border: {
     default: "#262c35",
@@ -88,6 +91,8 @@ export const expectedLightColorTokens: Record<string, Record<string, string>> = 
     card: "#ffffff",
     "status-panel": "#f7f8f9",
     "table-header": "#fafbfb",
+    // Reaproveita o cinza de border.default (abaixo) — não é hex novo.
+    skeleton: "var(--color-border-default)",
   },
   border: {
     default: "#e6e8eb",
