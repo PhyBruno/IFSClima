@@ -63,6 +63,14 @@ export const expectedColorTokens: Record<string, Record<string, string>> = {
     uv: "#a855f7",
     rain: "#06b6d4",
     wind: "#10b981",
+    // Fundo do chip de ícone (feedback do usuário, 2026-07-24): no dark
+    // aponta pro chip neutro via var() — não duplica o hex, ver theme.css.
+    "temperature-bg": "var(--color-surface-chip)",
+    "humidity-bg": "var(--color-surface-chip)",
+    "pressure-bg": "var(--color-surface-chip)",
+    "uv-bg": "var(--color-surface-chip)",
+    "rain-bg": "var(--color-surface-chip)",
+    "wind-bg": "var(--color-surface-chip)",
   },
 };
 
@@ -101,6 +109,16 @@ export const expectedLightColorTokens: Record<string, Record<string, string>> = 
   nav: {
     "active-bg": "#ecfdf5",
     "active-text": "#16a34a",
+  },
+  sensor: {
+    // Pastel por sensor pro fundo do chip de ícone — §8.4 ("bg claro
+    // associado"), feedback do usuário 2026-07-24.
+    "temperature-bg": "#fff7ed",
+    "humidity-bg": "#f0f9ff",
+    "pressure-bg": "#f0fdfa",
+    "uv-bg": "#faf5ff",
+    "rain-bg": "#ecfeff",
+    "wind-bg": "#ecfdf5",
   },
 };
 

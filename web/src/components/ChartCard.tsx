@@ -51,6 +51,17 @@ import { EmptyState } from "./EmptyState";
  *   posicionado via estado local (`hover`), usando as MESMAS coordenadas
  *   (percentuais) calculadas pro ponto/barra.
  *
+ * - **Linha fina + marcador vazado (revisão — feedback do usuário,
+ *   2026-07-24)**: a linha tinha `strokeWidth=2` e o marcador era um círculo
+ *   SÓLIDO na cor da série com raio próximo da espessura da própria linha —
+ *   visualmente os dois se confundiam ("pontos quase do tamanho da linha").
+ *   Ajustado pra: linha mais fina (`strokeWidth=1.25`); marcador "vazado"
+ *   (anel) com preenchimento `var(--color-surface-card)` — a MESMA cor de
+ *   fundo do card por trás do SVG, então o centro do marcador parece
+ *   transparente/recortado — e borda (`stroke`) na cor da série, mais fino
+ *   que a linha (`strokeWidth=1`). O alvo de hover/foco (círculo invisível
+ *   maior) não muda.
+ *
  * - **Escala lateral (eixo Y) — feedback do usuário, 2026-07-24**: uma
  *   coluna estreita à esquerda do SVG com o valor máximo (topo) e mínimo
  *   (base) da série (barra: sempre `0` na base). Formatado com `formatValue`
@@ -201,7 +212,7 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
               points={coords.map((c) => `${c.x},${c.y}`).join(" ")}
               fill="none"
               stroke={s.color}
-              strokeWidth={2}
+              strokeWidth={1.25}
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"
@@ -227,7 +238,15 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
 
               return (
                 <g key={key}>
-                  <circle cx={c.x} cy={c.y} r={isActive ? 2.2 : 1.4} fill={s.color} aria-hidden="true" />
+                  <circle
+                    cx={c.x}
+                    cy={c.y}
+                    r={isActive ? 2.2 : 1.6}
+                    style={{ fill: "var(--color-surface-card)" }}
+                    stroke={s.color}
+                    strokeWidth={1}
+                    aria-hidden="true"
+                  />
                   {/* Alvo de hover/foco maior que o marcador visível — mais fácil de acertar com o mouse, e focável via Tab (acessibilidade por teclado). */}
                   <circle
                     cx={c.x}

@@ -71,6 +71,15 @@ export default {
           uv: "var(--color-sensor-uv)",
           rain: "var(--color-sensor-rain)",
           wind: "var(--color-sensor-wind)",
+          // Fundo do chip de ícone (feedback do usuário, 2026-07-24) — ver
+          // theme.css: no dark aponta pro chip neutro, no light é o pastel
+          // por sensor (§8.4).
+          "temperature-bg": "var(--color-sensor-temperature-bg)",
+          "humidity-bg": "var(--color-sensor-humidity-bg)",
+          "pressure-bg": "var(--color-sensor-pressure-bg)",
+          "uv-bg": "var(--color-sensor-uv-bg)",
+          "rain-bg": "var(--color-sensor-rain-bg)",
+          "wind-bg": "var(--color-sensor-wind-bg)",
         },
       },
       fontFamily: {

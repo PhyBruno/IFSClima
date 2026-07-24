@@ -18,16 +18,16 @@ import { Card } from "./Card";
  *   formatada, ex. "Última leitura há 3h") — a lógica de tempo relativo é do
  *   chamador (F6), igual à decisão já tomada em `StatusPill`.
  *
- * - **Cor do chip de ícone**: a extração (§1.4/§8.4) documenta um `bg` claro
- *   por sensor só para o tema *light* (ex. `#fff7ed` para temperatura) — não
- *   existe token nenhum para isso em `tailwind.config.js`/`theme.css` (T5.2/
- *   T5.2b não criaram essa variável). Em vez de inventar uma CSS var nova
- *   (fora do escopo desta tarefa, ver CLAUDE.md/prompt), o chip reaproveita
- *   `bg-surface-chip` nos dois temas — no dark bate exatamente com o valor
- *   documentado (§1.1); no light isso diverge do pastel-por-sensor visto no
- *   mock, mas é a opção que não introduz token novo. Só o **ícone** (stroke,
- *   via `text-sensor-*`/`currentColor`) carrega a cor de acento do sensor,
- *   que já tem token nos dois temas.
+ * - **Cor do chip de ícone (revisão — feedback do usuário, 2026-07-24)**: a
+ *   extração (§1.4/§8.4) documenta um `bg` claro por sensor só para o tema
+ *   *light* (ex. `#fff7ed` para temperatura). A primeira versão reaproveitava
+ *   `bg-surface-chip` nos dois temas por não existir token pra isso — no
+ *   light isso deixava todo chip com o mesmo fundo escuro do dark (`#1c2129`),
+ *   visualmente errado. Corrigido com os novos tokens `--color-sensor-*-bg`
+ *   (`theme.css`/`tailwind.config.js`): no dark apontam pro chip neutro (sem
+ *   mudança de comportamento), no light resolvem pro pastel por sensor do
+ *   mock. O **ícone** em si (stroke, via `text-sensor-*`/`currentColor`)
+ *   continua carregando a cor de acento do sensor, sem mudança.
  *
  * - **Bg escuro do card offline (§5.1: "surface.sidebar, não surface.card")
  *   nos dois temas**: `bg-surface-sidebar` é aplicado sem condicional de
@@ -85,6 +85,16 @@ const SENSOR_STROKE_CLASS: Record<SensorType, string> = {
   uv: "stroke-sensor-uv",
   rain: "stroke-sensor-rain",
   wind: "stroke-sensor-wind",
+};
+
+/** Fundo do chip de ícone por sensor — dark: neutro (chip único); light: pastel por sensor (§8.4, feedback do usuário 2026-07-24). */
+const SENSOR_CHIP_BG_CLASS: Record<SensorType, string> = {
+  temperature: "bg-sensor-temperature-bg",
+  humidity: "bg-sensor-humidity-bg",
+  pressure: "bg-sensor-pressure-bg",
+  uv: "bg-sensor-uv-bg",
+  rain: "bg-sensor-rain-bg",
+  wind: "bg-sensor-wind-bg",
 };
 
 const TREND_TEXT_CLASS: Record<Trend, string> = {
@@ -178,8 +188,10 @@ export function StatCard({
 
   const iconChip = (
     <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-10 bg-surface-chip ${
-        offline ? "text-text-faint" : SENSOR_ICON_TEXT_CLASS[sensor]
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-10 ${
+        offline
+          ? "bg-surface-chip text-text-faint"
+          : `${SENSOR_CHIP_BG_CLASS[sensor]} ${SENSOR_ICON_TEXT_CLASS[sensor]}`
       }`}
     >
       {icon}

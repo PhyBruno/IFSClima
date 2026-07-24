@@ -76,6 +76,18 @@
   --color-sensor-rain: #06b6d4;
   --color-sensor-wind: #10b981;
 
+  /* Fundo do chip de ícone por sensor (feedback do usuário, 2026-07-24): no
+     dark não há um "chip pastel" documentado por sensor (§1.1) — só o chip
+     neutro `surface.chip`. Aponta pra ele via var() (não duplica o hex) pra
+     manter o dark exatamente como já era; o light sobrescreve cada um com o
+     pastel real (§8.4). */
+  --color-sensor-temperature-bg: var(--color-surface-chip);
+  --color-sensor-humidity-bg: var(--color-surface-chip);
+  --color-sensor-pressure-bg: var(--color-surface-chip);
+  --color-sensor-uv-bg: var(--color-surface-chip);
+  --color-sensor-rain-bg: var(--color-surface-chip);
+  --color-sensor-wind-bg: var(--color-surface-chip);
+
   /* Toggle "Modo escuro" — §8.7. Os dois estados (off/on) do switch são
      confirmados no arquivo lado a lado (off no mockup light, on no mockup
      dark), mas representam a POSIÇÃO do switch, não o tema ativo da página —
@@ -143,9 +155,17 @@
   --color-nav-active-bg: #ecfdf5;
   --color-nav-active-text: #16a34a;
 
-  /* brand.primary, status.positive/negative/neutral e sensor.* não mudam no
-     light (confirmado por render em §8.4/§8.5 — "mesmo hex do dark") — sem
-     override necessário, herdam do :root. */
+  /* brand.primary, status.positive/negative/neutral e sensor.* (acento) não
+     mudam no light (confirmado por render em §8.4/§8.5 — "mesmo hex do
+     dark") — sem override necessário, herdam do :root. O FUNDO do chip
+     (sensor.*-bg), abaixo, é diferente: §8.4 documenta um pastel próprio por
+     sensor pro light (coluna "bg claro associado"), que o dark não tem. */
+  --color-sensor-temperature-bg: #fff7ed;
+  --color-sensor-humidity-bg: #f0f9ff;
+  --color-sensor-pressure-bg: #f0fdfa;
+  --color-sensor-uv-bg: #faf5ff;
+  --color-sensor-rain-bg: #ecfeff;
+  --color-sensor-wind-bg: #ecfdf5;
 
   /* Shadows — §8.8. shadow.frame usa aqui o valor DESKTOP (alpha 0.14). O
      mock também documenta um alpha diferente pro mobile (0.18), mas
