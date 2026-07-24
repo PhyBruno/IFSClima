@@ -52,7 +52,12 @@ export function Sidebar({ active, className = "" }: SidebarProps) {
       <div className="flex items-center gap-2 text-sm font-bold text-text-primary">
         <span
           aria-hidden="true"
-          className="flex h-7 w-7 items-center justify-center rounded-10 bg-surface-chip text-brand-primary"
+          // bg-nav-active-bg (feedback do usuário, 2026-07-24): `bg-surface-chip`
+          // é o chip neutro escuro (§1.1), errado aqui no light — este logo é
+          // sempre verde (`text-brand-primary`), então reaproveita o MESMO
+          // wash verde já usado no item de nav ativo (existe nos dois temas),
+          // em vez de inventar um token novo só pra este chip.
+          className="flex h-7 w-7 items-center justify-center rounded-10 bg-nav-active-bg text-brand-primary"
         >
           <svg viewBox="0 0 24 24" width={16} height={16} fill="none" aria-hidden="true">
             <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={2} />

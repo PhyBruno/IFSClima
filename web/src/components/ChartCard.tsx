@@ -62,6 +62,21 @@ import { EmptyState } from "./EmptyState";
  *   que a linha (`strokeWidth=1`). O alvo de hover/foco (círculo invisível
  *   maior) não muda.
  *
+ * - **Marcador ainda menor (2ª revisão — feedback do usuário, 2026-07-24)**:
+ *   o raio de 1.6/2.2 (repouso/ativo) da revisão anterior ainda dominava a
+ *   linha de 1.25 de espessura, escondendo o traço que liga os pontos.
+ *   Reduzido pra 1/1.7 (repouso/ativo) e a borda do anel pra 0.8 — o alvo de
+ *   hover/foco continua com raio 3.5 (só a área de toque, não o desenho).
+ *
+ * - **Gap das barras proporcional ao nº de pontos (feedback do usuário,
+ *   2026-07-24)**: `barGap` era um valor FIXO em unidades do viewBox (4),
+ *   independente de quantos pontos a série tinha. Com poucos pontos (ex. 4)
+ *   isso parece razoável, mas com muitos (ex. 24 buckets/hora em 24h) o gap
+ *   fixo consumia quase todo o espaço disponível, sobrando barras quase
+ *   invisíveis lateralmente ("estão muito pequenas"). Trocado por um gap
+ *   PROPORCIONAL ao espaço ("slot") de cada ponto (`BAR_GAP_RATIO`), então a
+ *   proporção barra/vão fica constante não importa quantos pontos existam.
+ *
  * - **Escala lateral (eixo Y) — feedback do usuário, 2026-07-24**: uma
  *   coluna estreita à esquerda do SVG com o valor máximo (topo) e mínimo
  *   (base) da série (barra: sempre `0` na base). Formatado com `formatValue`
@@ -241,10 +256,10 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
                   <circle
                     cx={c.x}
                     cy={c.y}
-                    r={isActive ? 2.2 : 1.6}
+                    r={isActive ? 1.7 : 1}
                     style={{ fill: "var(--color-surface-card)" }}
                     stroke={s.color}
-                    strokeWidth={1}
+                    strokeWidth={0.8}
                     aria-hidden="true"
                   />
                   {/* Alvo de hover/foco maior que o marcador visível — mais fácil de acertar com o mouse, e focável via Tab (acessibilidade por teclado). */}
@@ -281,11 +296,15 @@ interface BarChartProps {
   onHover: (info: HoverInfo | null) => void;
 }
 
+/** Fração do "slot" de cada ponto reservada ao vão entre barras — constante independente de quantos pontos existem (ver docstring do componente). */
+const BAR_GAP_RATIO = 0.3;
+
 function BarChart({ points, color, pointLabels, unit, onHover }: BarChartProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const max = Math.max(...points, 0);
-  const barGap = 4;
-  const barWidth = (VIEWBOX_WIDTH - barGap * (points.length - 1)) / points.length;
+  const slotWidth = VIEWBOX_WIDTH / points.length;
+  const barGap = slotWidth * BAR_GAP_RATIO;
+  const barWidth = slotWidth - barGap;
 
   return (
     <svg
