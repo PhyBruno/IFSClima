@@ -24,6 +24,8 @@ Memória persistente: decisões, blockers, lições, todos e ideias adiadas.
 | D16 | 2026-07-23 | F5: tema **claro entra no escopo do v1** (não é mais adiado pra v2); toggle claro/escuro com **escuro como default** | Pedido do usuário durante a execução de F5. O design original já tem os dois temas mockados + um toggle "Modo escuro" — é extração fiel, não design novo. Reabre parte de T5.1 (extração focou só em dark) — ver T5.1b em `f5-design-system/spec.md` |
 | D17 | 2026-07-24 | F6 T6.5: header de `DashboardPage` mostra só título + **um único** indicador de status (`StatusPill` inline), visível **só quando a estação está offline** (sem repetir "atualizado há X", que `SensorGrid` já renderiza) | Revisão pelo usuário da primeira versão (que usava `!isError` e sempre mostrava "Online"/"Offline"): "estação offline" agora é definido como sem conexão nas **últimas 24h** (`age_seconds > 86400`) ou nenhuma leitura ainda (`timestamp === null`) — nunca por um erro de fetch pontual (isso continua sendo o `ConnectionBanner` de `SensorGrid`/`ChartsSection`, T6.4, um problema diferente). Nunca mais um texto "Estação online" |
 | D18 | 2026-07-24 | F6 T6.5: `Sidebar` (desktop) e `BottomNav` (mobile) — novos componentes de navegação, com "Histórico" (F8) presente mas desabilitado (sem link, F8 ainda não tem página) | Faltavam na primeira versão de T6.5 (feedback do usuário) — `f8-history-export/design.md` já citava "layout/nav compartilhado com o dashboard (F6)" como dependência, confirmando que era escopo de F6. Sem painel de status na sidebar (ver D17: só um indicador, no header) |
+| D19 | 2026-07-24 | F8 T8.2: `streamRange` (export CSV/XLSX) implementado como async generator com **keyset pagination** por `(timestamp, id)` em chunks de 1000, não `pg-query-stream`/cursor nativo | Evita nova dependência de driver; paginação por OFFSET grande é evitada (keyset), atendendo HIST-09 (não estourar memória) sem sofisticação desnecessária para o volume de 1 estação |
+| D20 | 2026-07-24 | F8 T8.6: página `/historico` roteada por checagem de `window.location.pathname` em `main.tsx` (mesmo padrão já usado por `/__ui`, T5.4), **sem** adicionar `react-router-dom` | Projeto só tem 2 telas reais no total; consistente com a decisão original de T5.4 de não introduzir lib de roteamento até haver necessidade real — item "Histórico" da Sidebar/BottomNav (D18) passa de desabilitado para link real |
 
 ## Blockers
 
@@ -54,6 +56,7 @@ Próxima fase (aguardando OK do usuário para implementar):
 - [x] Implementar F4 (endpoints `GET /readings/latest` e `GET /readings/series`, agregação `date_trunc` por hora/dia)
 - [x] Implementar F5 (design system: tokens Tailwind/CSS vars nos dois temas, 7 componentes base testados — Card, StatCard, ChartCard, PeriodSelector, StatusPill, EmptyState, ThemeToggle —, galeria de demo `/__ui`)
 - [x] Implementar F6 (dashboard: api-client + React Query, `SensorGrid`, `ChartsSection` com `PeriodSelector`, resiliência/skeletons, `DashboardPage` montada como rota raiz em `App.tsx`)
+- [x] Implementar F8 (histórico: `GET /readings` paginado + `GET /readings/export` CSV/XLSX streaming; página `/historico` com `DateRangePicker`, `ReadingsTable`, export)
 - [ ] Implementar F7
 
 ## Deferred Ideas
