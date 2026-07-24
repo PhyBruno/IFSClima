@@ -55,6 +55,10 @@ services:
       target: ${WEB_TARGET:-dev}
     environment:
       NODE_ENV: ${NODE_ENV:-development}
+      # F6 T6.5: proxy do Vite dev server (vite.config.ts) pro serviço `api`
+      # pelo hostname da rede Docker — sem isso, o api-client (T6.1) chamando
+      # `/api/v1/...` relativo não teria pra onde ir dentro do container `web`.
+      API_PROXY_TARGET: http://api:${API_PORT:-3000}
     ports:
       - "${WEB_PORT:-5173}:5173"
     volumes:
