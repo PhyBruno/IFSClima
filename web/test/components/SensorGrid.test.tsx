@@ -73,7 +73,7 @@ describe("SensorGrid", () => {
     expect(screen.getByText("24.7")).toBeInTheDocument();
   });
 
-  it("UI-03: exibe 'atualizado há X' formatado a partir de age_seconds", async () => {
+  it("UI-03 (revisado 2026-07-24): não mostra mais 'atualizado há X' — legenda movida pro rodapé de DashboardPage", async () => {
     server.use(
       http.get("/api/v1/readings/latest", () =>
         HttpResponse.json({ ...latestFixture, age_seconds: 125 }),
@@ -82,8 +82,8 @@ describe("SensorGrid", () => {
 
     renderGrid();
 
-    await waitFor(() => expect(screen.getByText(/atualizado/i)).toBeInTheDocument());
-    expect(screen.getByText(/atualizado há 2 min/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+    expect(screen.queryByText(/atualizado/i)).not.toBeInTheDocument();
   });
 
   it("UI-04: timestamp null (nenhuma leitura ainda) mostra estado vazio, não os cards/erro", async () => {

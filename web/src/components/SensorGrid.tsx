@@ -5,7 +5,6 @@ import { Card } from "./Card";
 import { EmptyState } from "./EmptyState";
 import { Skeleton } from "./Skeleton";
 import { ConnectionBanner } from "./ConnectionBanner";
-import { formatAge } from "../utils/formatAge";
 
 /**
  * `SensorGrid` (F6 T6.2/T6.4) — compõe `StatCard` (F5) para os 5 sensores a
@@ -21,11 +20,15 @@ import { formatAge } from "../utils/formatAge";
  *   componente só repassa `latest[campo]` como veio da API, sem duplicar
  *   nenhuma lógica de "valor ausente" aqui.
  *
- * - **"Atualizado há X" (AC3/UI-03)**: `StatCard.lastSeenText` só é
+ * - **"Atualizado há X" (AC3/UI-03) — movido pro rodapé da página (revisão,
+ *   feedback do usuário, 2026-07-24)**: `StatCard.lastSeenText` só é
  *   renderizado no estado offline (ver `StatCard.tsx`) — não existe um lugar
  *   por-card para isso quando o sensor tem dado. Como `age_seconds` é uma
- *   propriedade da *leitura* (uma por estação), não do sensor individual,
- *   o texto é uma legenda única acima do grid, não repetida em cada card.
+ *   propriedade da *leitura* (uma por estação), não do sensor individual, a
+ *   legenda nunca foi por-card — só que agora vive no `<footer>` de
+ *   `DashboardPage` (reaproveitando a MESMA `data` de `useLatest()`, cache
+ *   deduplicado pela `queryKey`), não mais aqui. Este componente não sabe
+ *   mais nada sobre "idade" da leitura.
  *
  * - **Estado vazio global (AC4/UI-04)**: dispara só quando `timestamp` é
  *   explicitamente `null` (nenhuma leitura já registrada) — não enquanto
@@ -162,7 +165,6 @@ export function SensorGrid() {
   return (
     <div className="flex flex-col gap-2">
       <ConnectionBanner show={isError} lastUpdatedAt={data.timestamp} />
-      <p className="text-xs text-text-muted">atualizado {formatAge(data.age_seconds)}</p>
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
         {SENSORS.map(({ field, sensor, label, unit }) => (
           <StatCard

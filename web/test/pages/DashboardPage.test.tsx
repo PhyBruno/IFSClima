@@ -49,7 +49,14 @@ describe("DashboardPage", () => {
   it("UI-01: exibe o título da página em um heading h1", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { level: 1, name: /estação meteorológica/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: /painel de monitoramento/i })).toBeInTheDocument();
+  });
+
+  it("subtítulo do header explica a diferença entre leitura mais recente (sensores) e média histórica (gráficos)", () => {
+    renderPage();
+
+    expect(screen.getByText(/leitura mais recente/i)).toBeInTheDocument();
+    expect(screen.getByText(/média histórica/i)).toBeInTheDocument();
   });
 
   it("compõe SensorGrid (5 StatCards) e ChartsSection (5 ChartCards + PeriodSelector)", async () => {
@@ -141,12 +148,45 @@ describe("DashboardPage", () => {
 
     renderPage();
 
-    expect(screen.getByRole("heading", { level: 1, name: /estação meteorológica/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: /painel de monitoramento/i })).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
     expect(screen.getAllByText("Sem sinal")).toHaveLength(5);
   });
 
   it("referência: usa a fixture sintética latestFixture (não dados reais da estação)", () => {
     expect(latestFixture.station_id).toBe("main");
+  });
+
+  describe("rodapé (feedback do usuário, 2026-07-24: 'atualizado há X' movido do SensorGrid pra cá)", () => {
+    it("mostra 'Atualizado há X' formatado a partir de age_seconds e a assinatura do desenvolvedor", async () => {
+      server.use(
+        http.get("/api/v1/readings/latest", () =>
+          HttpResponse.json({ ...latestFixture, age_seconds: 125 }),
+        ),
+      );
+
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText(/atualizado/i)).toBeInTheDocument());
+      expect(screen.getByText(/atualizado há 2 min/i)).toBeInTheDocument();
+      expect(screen.getByText(/desenvolvido por bruno eduardo santos/i)).toBeInTheDocument();
+    });
+
+    it("SensorGrid não mostra mais a legenda 'atualizado' (responsabilidade só do rodapé agora)", async () => {
+      renderPage();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      const grid = screen.getAllByTestId("statcard")[0]!.closest<HTMLElement>("div.flex.flex-col.gap-2")!;
+      expect(within(grid).queryByText(/^atualizado/i)).not.toBeInTheDocument();
+    });
+
+    it("sem nenhuma leitura ainda (timestamp null), não mostra 'Atualizado' no rodapé — só a assinatura", async () => {
+      server.use(http.get("/api/v1/readings/latest", () => HttpResponse.json(emptyLatestFixture)));
+
+      renderPage();
+
+      await screen.findByText(/desenvolvido por bruno eduardo santos/i);
+      expect(screen.queryByText(/atualizado/i)).not.toBeInTheDocument();
+    });
   });
 });

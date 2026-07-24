@@ -12,7 +12,7 @@ import { createQueryClient } from "../src/providers/QueryProvider";
  * sem lançar erro e mostra o título).
  */
 describe("App", () => {
-  it("renderiza sem lançar erro e mostra o título da Estação Meteorológica", () => {
+  it("renderiza sem lançar erro e mostra o título do painel", () => {
     const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -20,6 +20,6 @@ describe("App", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText(/estação meteorológica/i)).toBeInTheDocument();
+    expect(screen.getByText(/painel de monitoramento/i)).toBeInTheDocument();
   });
 });

@@ -5,6 +5,7 @@ import { BottomNav } from "../components/BottomNav";
 import { SensorGrid } from "../components/SensorGrid";
 import { ChartsSection } from "../components/ChartsSection";
 import { formatTime } from "../utils/formatTime";
+import { formatAge } from "../utils/formatAge";
 
 /**
  * Estação é considerada "offline" só sem conexão nas ÚLTIMAS 24H (regra do
@@ -42,6 +43,27 @@ const STATION_OFFLINE_THRESHOLD_SECONDS = 24 * 60 * 60;
  * pra saber a idade da última leitura — não mostra nada aqui (o caso
  * "!data" já tem seu próprio indicador, o `ConnectionBanner` dentro de
  * `SensorGrid`, evitando um segundo indicador na tela).
+ *
+ * **Título + subtítulo explicativo (feedback do usuário, 2026-07-24)**: "Estação
+ * Meteorológica" duplicava o nome da marca já visível no logo da `Sidebar`
+ * ("IFSClima") sem agregar informação — trocado por um título funcional
+ * ("Painel de Monitoramento"). O subtítulo abaixo existe porque o usuário
+ * relatou que não ficava claro que os cards de sensor (`SensorGrid`) são a
+ * ÚLTIMA leitura pontual da estação (`useLatest`, um valor só, atualizado por
+ * polling a cada 60s — ver `hooks/useLatest.ts`), enquanto os gráficos
+ * (`ChartsSection`) são uma AGREGAÇÃO histórica real (`AVG`/`SUM` por
+ * hora/dia, calculada no banco — `api/src/services/readings-service.ts`),
+ * não os "últimos valores" repetidos. Uma frase só, no topo, cobre as duas
+ * fontes de dado de uma vez — não duplicada por seção.
+ *
+ * **Rodapé (feedback do usuário, 2026-07-24)**: "atualizado há X" morava
+ * como legenda dentro do `SensorGrid` (T6.2) — movido pra cá, no rodapé da
+ * página, junto da assinatura do desenvolvedor. `ageText` reaproveita o
+ * MESMO `data`/`useLatest()` já buscado nesta função (sem hook novo) e segue
+ * a MESMA regra do `SensorGrid` original: só aparece quando já existe uma
+ * leitura de verdade (`data.timestamp !== null`) — nunca "atualizado sem
+ * leitura" (texto que só fazia sentido como fallback defensivo de
+ * `formatAge`, não como algo a mostrar de propósito).
  */
 export function DashboardPage() {
   const { data, isPending } = useLatest();
@@ -49,6 +71,7 @@ export function DashboardPage() {
   const neverReported = Boolean(data) && data?.timestamp === null;
   const isStale = data?.age_seconds != null && data.age_seconds > STATION_OFFLINE_THRESHOLD_SECONDS;
   const showOfflineIndicator = !isPending && Boolean(data) && (neverReported || isStale);
+  const ageText = data && data.timestamp !== null ? `Atualizado ${formatAge(data.age_seconds)}` : null;
 
   return (
     <div className="flex min-h-screen bg-surface-page text-text-primary">
@@ -73,12 +96,21 @@ export function DashboardPage() {
             (feedback do usuário, 2026-07-24) — 1600px aproveita a largura
             real ao lado da Sidebar sem esticar demais em ultrawide. */}
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
-          <header className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-xl font-bold md:text-2xl">Estação Meteorológica</h1>
+          <header className="flex flex-col gap-1">
+            <h1 className="text-xl font-bold md:text-2xl">Painel de Monitoramento</h1>
+            <p className="text-sm text-text-tertiary">
+              Sensores mostram a leitura mais recente da estação; os gráficos mostram a média histórica do período
+              selecionado.
+            </p>
           </header>
 
           <SensorGrid />
           <ChartsSection />
+
+          <footer className="mt-2 flex flex-col items-center gap-1 border-t border-border-subtle pt-4 text-center text-xs text-text-faint md:flex-row md:justify-between md:text-left">
+            <span>{ageText}</span>
+            <span>Desenvolvido por Bruno Eduardo Santos © 2026</span>
+          </footer>
         </div>
       </main>
 
