@@ -50,7 +50,8 @@ Próxima fase (aguardando OK do usuário para implementar):
 - [x] Implementar F2 (schema `stations`/`readings` Drizzle, migrations, seed `main`, runner no boot do container)
 - [x] Implementar F3 (endpoint `POST /api/v1/ingest`, auth `X-API-Key`, idempotência, rejeição por item)
 - [x] Implementar F4 (endpoints `GET /readings/latest` e `GET /readings/series`, agregação `date_trunc` por hora/dia)
-- [ ] Implementar F5 → F6 → F7
+- [x] Implementar F5 (design system: tokens Tailwind/CSS vars nos dois temas, 7 componentes base testados — Card, StatCard, ChartCard, PeriodSelector, StatusPill, EmptyState, ThemeToggle —, galeria de demo `/__ui`)
+- [ ] Implementar F6 → F7
 
 ## Deferred Ideas
 

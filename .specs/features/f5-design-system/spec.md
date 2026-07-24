@@ -6,9 +6,9 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
 
 ## Goals
 
-- [ ] Extrair tokens exatos do design bundled e registrá-los (Tailwind theme + CSS vars).
-- [ ] Biblioteca de componentes base (Card, StatCard, Chart wrapper, PeriodSelector, etc.) testada.
-- [ ] Tema escuro **e claro** fiéis ao original, com toggle (escuro como default), responsivo (mobile-first).
+- [x] Extrair tokens exatos do design bundled e registrá-los (Tailwind theme + CSS vars).
+- [x] Biblioteca de componentes base (Card, StatCard, Chart wrapper, PeriodSelector, etc.) testada.
+- [x] Tema escuro **e claro** fiéis ao original, com toggle (escuro como default), responsivo (mobile-first).
 
 > **Atualização (2026-07-23, pedido do usuário):** o tema claro estava listado como fora de
 > escopo ("é v2") na primeira versão desta spec. O usuário pediu para incluir os dois temas já
@@ -80,13 +80,13 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| DS-01 | P1: tokens extraídos → tailwind theme | Tasks | Pending |
-| DS-02 | P1: fidelidade visual de cor/tipo | Tasks | Pending |
-| DS-03 | P1: componentes base testados (RTL) | Tasks | Pending |
-| DS-04 | P1: estado nulo nos componentes | Tasks | Pending |
-| DS-05 | P1: responsividade mobile-first | Tasks | Pending |
-| DS-06 | a11y: contraste + reduced-motion | Tasks | Pending |
-| DS-07 | P1: toggle claro/escuro, default escuro, tokens fiéis aos dois temas | Tasks | Pending |
+| DS-01 | P1: tokens extraídos → tailwind theme | Tasks | Done |
+| DS-02 | P1: fidelidade visual de cor/tipo | Tasks | Done |
+| DS-03 | P1: componentes base testados (RTL) | Tasks | Done |
+| DS-04 | P1: estado nulo nos componentes | Tasks | Done |
+| DS-05 | P1: responsividade mobile-first | Tasks | Done |
+| DS-06 | a11y: contraste + reduced-motion | Tasks | Done |
+| DS-07 | P1: toggle claro/escuro, default escuro, tokens fiéis aos dois temas | Tasks | Done |
 
 ---
 
@@ -114,13 +114,13 @@ O design foi entregue como `Estacao Meteorologica (standalone).html` (página bu
   `ThemeToggle` alterna o atributo `data-theme` no elemento raiz).
   Traceability: DS-03, DS-04, DS-05, DS-06, DS-07.
 
-- **T5.4 — Rota/página de demo (galeria de componentes)** (depends: T5.3)
+- **T5.4 — Rota/página de demo (galeria de componentes)** (depends: T5.3) ✅ concluída
   What: `/__ui` que renderiza todos os componentes p/ comparação visual com o original.
   Done when: comparável lado a lado com o HTML de design.
   Traceability: DS-02.
 
 ## Success Criteria
 
-- [ ] Tokens fiéis ao design original, centralizados.
-- [ ] Todos os componentes base com testes RTL verdes e acessíveis.
-- [ ] Galeria de demo comparável ao design entregue.
+- [x] Tokens fiéis ao design original, centralizados.
+- [x] Todos os componentes base com testes RTL verdes e acessíveis.
+- [x] Galeria de demo comparável ao design entregue.
