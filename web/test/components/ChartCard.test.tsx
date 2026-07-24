@@ -382,6 +382,76 @@ describe("ChartCard", () => {
     });
   });
 
+  describe("unidade por série (ChartSeries.unit — combos de 2 métricas)", () => {
+    it("cada série usa sua PRÓPRIA unidade no tooltip quando as unidades divergem", () => {
+      render(
+        <ChartCard
+          title="Temperatura × Umidade"
+          variant="line"
+          series={[
+            { label: "Temperatura", color: "#f97316", points: [20, 24], unit: "°C" },
+            { label: "Umidade", color: "#0ea5e9", points: [60, 65], unit: "%" },
+          ]}
+        />,
+      );
+
+      const hitTargets = screen.getAllByTestId("chart-point-hit");
+      // 2 séries x 2 pontos = 4 alvos; os 2 primeiros são da 1ª série (Temperatura).
+      fireEvent.mouseEnter(hitTargets[0]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("20°C");
+
+      fireEvent.mouseLeave(hitTargets[0]!);
+      fireEvent.mouseEnter(hitTargets[2]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("60%");
+    });
+
+    it("série sem unit própria cai no unit do card (retrocompatibilidade)", () => {
+      render(
+        <ChartCard
+          title="Temperatura"
+          variant="line"
+          unit="°C"
+          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24] }]}
+        />,
+      );
+
+      fireEvent.mouseEnter(screen.getAllByTestId("chart-point-hit")[0]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("20°C");
+    });
+
+    it("eixo Y lateral é ESCONDIDO quando as séries de linha têm unidades diferentes (misturar °C e % não faria sentido)", () => {
+      render(
+        <ChartCard
+          title="Temperatura × Umidade"
+          variant="line"
+          series={[
+            { label: "Temperatura", color: "#f97316", points: [20, 24], unit: "°C" },
+            { label: "Umidade", color: "#0ea5e9", points: [60, 65], unit: "%" },
+          ]}
+        />,
+      );
+
+      expect(screen.queryByTestId("chart-axis")).not.toBeInTheDocument();
+    });
+
+    it("eixo Y lateral continua aparecendo quando todas as séries de linha compartilham a mesma unidade", () => {
+      render(
+        <ChartCard
+          title="Temperatura × Sensação"
+          variant="line"
+          series={[
+            { label: "Temperatura", color: "#f97316", points: [18, 24], unit: "°C" },
+            { label: "Sensação", color: "#eab308", points: [17, 25], unit: "°C" },
+          ]}
+        />,
+      );
+
+      const axis = screen.getByTestId("chart-axis");
+      expect(axis).toHaveTextContent("25°C");
+      expect(axis).toHaveTextContent("17°C");
+    });
+  });
+
   it("Card por baixo não recebe shadow (ChartCard é sempre flat, §3.3/§8.8)", () => {
     render(
       <ChartCard

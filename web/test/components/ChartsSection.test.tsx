@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../mocks/server";
@@ -239,9 +239,12 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     // T6.4: cada card nasce como `ChartCardSkeleton` (`isPending`, sem dado
     // em cache ainda, `data-testid="chartcard-skeleton"`) e só vira o
     // `ChartCard` real (`data-testid="chartcard"`) quando o fetch resolve.
-    // Espera os 5 `chartcard` REAIS existirem antes de procurar o de Chuva
-    // especificamente — checar só o de Chuva isolado seria frágil aqui.
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(5));
+    // Espera os 8 `chartcard` REAIS existirem (5 métrica única + 3 combos,
+    // ver `COMBO_CHARTS`) antes de procurar o de Chuva especificamente —
+    // checar só o de Chuva isolado seria frágil aqui. O combo "uv-rain" usa
+    // o rótulo "Chuva (média)" (não "Chuva"), então continua havendo um SÓ
+    // elemento com o texto exato "Chuva" (o título do card standalone).
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
     const rainCard = screen.getByText("Chuva").closest('[data-testid="chartcard"]')!;
     const svg = rainCard.querySelector('[data-testid="chart-svg"]')!;
@@ -255,23 +258,25 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     render(<ChartsSection />, { wrapper: createWrapper() });
 
     const emptyMessages = await screen.findAllByText("Nenhum dado no período");
-    // 5 métricas, todas sem dado no período selecionado.
-    expect(emptyMessages).toHaveLength(5);
+    // 5 métricas + 3 combos (as 2 métricas de cada combo também ficam vazias
+    // com este handler), todas sem dado no período selecionado.
+    expect(emptyMessages).toHaveLength(8);
   });
 
   it("T6.4: mostra skeleton por gráfico durante o carregamento inicial (sem dado em cache ainda)", () => {
     render(<ChartsSection />, { wrapper: createWrapper() });
 
     // Sem `await`/`waitFor` de propósito — o instante síncrono pós-render
-    // (antes do MSW resolver) é exatamente o que este teste cobre.
-    expect(screen.getAllByTestId("chartcard-skeleton")).toHaveLength(5);
+    // (antes do MSW resolver) é exatamente o que este teste cobre. 5 cards de
+    // métrica única + 3 combos, todos nascem em skeleton (`comboIsPending`).
+    expect(screen.getAllByTestId("chartcard-skeleton")).toHaveLength(8);
     expect(screen.queryAllByTestId("chartcard")).toHaveLength(0);
   });
 
   it("T6.4/UI-09: grid de gráficos é responsivo (1 coluna mobile, 2 no breakpoint md:)", async () => {
     render(<ChartsSection />, { wrapper: createWrapper() });
 
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(5));
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
     const grid = screen.getAllByTestId("chartcard")[0]!.parentElement!;
     expect(grid).toHaveClass("grid", "grid-cols-1", "md:grid-cols-2");
@@ -295,14 +300,97 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     }
     render(<ChartsSection />, { wrapper: Wrapper });
 
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(5));
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
     server.use(http.get("/api/v1/readings/series", () => new HttpResponse(null, { status: 500 })));
     await client.refetchQueries({ queryKey: ["readings", "series"] }).catch(() => {});
 
     await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
     expect(screen.getByText(/reconectando/i)).toBeInTheDocument();
-    // Nunca tela branca: os 5 gráficos (com o dado de 24h já carregado) continuam visíveis.
-    expect(screen.getAllByTestId("chartcard")).toHaveLength(5);
+    // Nunca tela branca: os 8 gráficos (5 métrica única + 3 combos, com o
+    // dado de 24h já carregado) continuam visíveis.
+    expect(screen.getAllByTestId("chartcard")).toHaveLength(8);
+  });
+
+  describe("Comparativos (combos de 2 métricas — pedido do usuário do produto, 2026-07-24)", () => {
+    it("renderiza os 3 cards combo com seus títulos, reaproveitando as MESMAS 5 queries de métrica única (sem request de rede extra)", async () => {
+      let callCount = 0;
+      server.use(
+        http.get("/api/v1/readings/series", ({ request }) => {
+          callCount += 1;
+          const metric = new URL(request.url).searchParams.get("metric");
+          return HttpResponse.json(metric === "rain_mm" ? rainSeriesFixture : seriesFixture);
+        }),
+      );
+
+      render(<ChartsSection />, { wrapper: createWrapper() });
+
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+
+      expect(screen.getByText("Temperatura × Umidade")).toBeInTheDocument();
+      expect(screen.getByText("Índice UV × Chuva — chuva média (mm)")).toBeInTheDocument();
+      expect(screen.getByText("Temperatura × Pressão")).toBeInTheDocument();
+
+      // 5 métricas únicas — os combos reaproveitam a MESMA queryKey (mesmo
+      // cache do React Query), então nenhuma requisição além das 5 originais.
+      expect(callCount).toBe(5);
+    });
+
+    it("combo Temperatura × Umidade: 2 polylines, uma por métrica, cor por série", async () => {
+      server.use(
+        http.get("/api/v1/readings/series", ({ request }) => {
+          const metric = new URL(request.url).searchParams.get("metric");
+          return HttpResponse.json(metric === "rain_mm" ? rainSeriesFixture : seriesFixture);
+        }),
+      );
+
+      render(<ChartsSection />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+
+      const card = screen.getByText("Temperatura × Umidade").closest('[data-testid="chartcard"]')!;
+      const svg = card.querySelector('[data-testid="chart-svg"]')!;
+      expect(svg.querySelectorAll("polyline")).toHaveLength(2);
+    });
+
+    it("combo Índice UV × Chuva usa a MÉDIA da chuva (avg), não a soma acumulada do card standalone — o card 'Chuva' original não muda", async () => {
+      server.use(
+        http.get("/api/v1/readings/series", ({ request }) => {
+          const metric = new URL(request.url).searchParams.get("metric");
+          return HttpResponse.json(metric === "rain_mm" ? rainSeriesFixture : seriesFixture);
+        }),
+      );
+
+      render(<ChartsSection />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+
+      // Card standalone "Chuva": continua bar/sum (0.4, 0.1 — rainSeriesFixture.sum).
+      const rainCard = screen.getByText("Chuva").closest('[data-testid="chartcard"]')!;
+      expect(rainCard.querySelector('[data-testid="chart-svg"]')!.querySelectorAll("rect")).toHaveLength(2);
+
+      // Combo "uv-rain": chuva vira linha com avg (0.1, 0.05 — rainSeriesFixture.avg), não sum.
+      const comboCard = screen.getByText("Índice UV × Chuva — chuva média (mm)").closest('[data-testid="chartcard"]')!;
+      const comboSvg = comboCard.querySelector('[data-testid="chart-svg"]')!;
+      expect(comboSvg.querySelectorAll("polyline")).toHaveLength(2);
+      expect(comboSvg.querySelectorAll("rect")).toHaveLength(0);
+    });
+
+    it("combo com unidades diferentes (°C × %) não mostra eixo Y lateral — tooltip por ponto continua com a unidade certa de cada série", async () => {
+      server.use(
+        http.get("/api/v1/readings/series", ({ request }) => {
+          const metric = new URL(request.url).searchParams.get("metric");
+          return HttpResponse.json(metric === "rain_mm" ? rainSeriesFixture : seriesFixture);
+        }),
+      );
+
+      render(<ChartsSection />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+
+      const card = screen.getByText("Temperatura × Pressão").closest<HTMLElement>('[data-testid="chartcard"]')!;
+      expect(within(card).queryByTestId("chart-axis")).not.toBeInTheDocument();
+
+      const hitTargets = within(card).getAllByTestId("chart-point-hit");
+      fireEvent.mouseEnter(hitTargets[0]!);
+      expect(within(card).getByTestId("chart-tooltip")).toHaveTextContent("°C");
+    });
   });
 });

@@ -59,11 +59,12 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/média histórica/i)).toBeInTheDocument();
   });
 
-  it("compõe SensorGrid (5 StatCards) e ChartsSection (5 ChartCards + PeriodSelector)", async () => {
+  it("compõe SensorGrid (5 StatCards) e ChartsSection (5 ChartCards de métrica única + 3 combos + PeriodSelector)", async () => {
     renderPage();
 
     await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(5));
+    // 5 métrica única (`METRIC_CHARTS`) + 3 combos (`COMBO_CHARTS` — Temp×Umidade, UV×Chuva, Temp×Pressão).
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
     expect(screen.getByRole("button", { name: "Últimas 24h" })).toBeInTheDocument();
   });
 

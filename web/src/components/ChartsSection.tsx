@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, type UseQueryResult } from "@tanstack/react-query";
 import { ChartCard, type ChartSeries } from "./ChartCard";
 import { PeriodSelector, type PeriodOption } from "./PeriodSelector";
 import { Card } from "./Card";
@@ -191,18 +191,34 @@ function extractSeriesData(
   return { points, labels };
 }
 
-/** `avg` de cada bucket → 1 série de linha (UI-05). `response` undefined (query ainda sem dado) ou sem pontos válidos → `[]`, o que já faz o `ChartCard` mostrar `EmptyState` sozinho (UI-06 AC4). */
+/**
+ * `avg` de cada bucket → 1 série de linha (UI-05). `response` undefined
+ * (query ainda sem dado) ou sem pontos válidos → `[]`, o que já faz o
+ * `ChartCard` mostrar `EmptyState` sozinho (UI-06 AC4).
+ *
+ * `unit` (4º parâmetro, opcional): popula `ChartSeries.unit` — usado pelos
+ * cards "combo" (`COMBO_CHARTS`/`comboSeries` abaixo), onde cada uma das 2
+ * séries do card tem sua PRÓPRIA unidade (`ChartCard.tsx`, bullet "Unidade
+ * por série"). Omitido (chamada dos 5 cards de métrica única em
+ * `METRIC_CHARTS`, inalterada) = `ChartSeries.unit` fica `undefined` e o
+ * `ChartCard` cai no `unit` do card inteiro, exatamente como antes desta
+ * task — retrocompatibilidade total, sem mudar o array já retornado pelas
+ * chamadas existentes (o operador de espalhamento condicional abaixo evita
+ * até uma chave `unit: undefined` "a mais" no objeto, pra não depender da
+ * semântica de `toEqual` ignorar chaves `undefined`).
+ */
 export function bucketsToLineSeries(
   response: SeriesResponse | undefined,
   label: string,
   color: string,
+  unit?: string,
 ): ChartSeries[] {
   if (!response) {
     return [];
   }
 
   const { points } = extractSeriesData(response.buckets, "avg", response.bucket);
-  return points.length === 0 ? [] : [{ label, color, points }];
+  return points.length === 0 ? [] : [{ label, color, points, ...(unit !== undefined ? { unit } : {}) }];
 }
 
 /** `sum` (não `avg`) de cada bucket → 1 série de barras — chuva é acumulada, não uma média (UI-07/spec.md AC3). */
@@ -259,6 +275,102 @@ const METRIC_CHARTS: MetricChartConfig[] = [
   { metric: "uv_index", title: "Índice UV", color: "var(--color-sensor-uv)", variant: "line", unit: "" },
 ];
 
+/** Uma das 2 métricas desenhadas num `ComboChartConfig` — vira 1 `ChartSeries` via `bucketsToLineSeries(..., unit)`. */
+interface ComboSeriesConfig {
+  metric: Metric;
+  label: string;
+  color: string;
+  unit: string;
+}
+
+/**
+ * Um card "comparativo" (2 métricas sobrepostas no mesmo `ChartCard`,
+ * pedido do usuário do produto, 2026-07-24) — não cabe no shape de
+ * `MetricChartConfig` (1 métrica só), daí um tipo/array separado e um
+ * segundo bloco de renderização abaixo (`COMBO_CHARTS.map`, mesma ideia de
+ * `METRIC_CHARTS.map`, mas com uma chave própria — nenhuma metric única
+ * identifica o card).
+ */
+interface ComboChartConfig {
+  key: string;
+  /**
+   * Sempre "line" — ambas as séries dos 3 combos usam `avg`
+   * (`bucketsToLineSeries`), inclusive Chuva (ver `series[1]` do combo
+   * "uv-rain" abaixo e a nota no próprio título). Não existe hoje um modo
+   * bar+linha sobreposto no `ChartCard` (`variant` é um valor só por card,
+   * `ChartCard.tsx`) — estender pra isso seria bem mais trabalho (um eixo/
+   * geometria por variante desenhados juntos) só pra manter "chuva
+   * acumulada" também no combo. Optou-se pela alternativa mais simples:
+   * chuva vira MÉDIA (não soma) neste card específico, e o título deixa
+   * isso explícito ("chuva média") pra não ser confundido com o card
+   * standalone "Chuva" (que continua `variant="bar"`/`sum`, sem nenhuma
+   * mudança — ver `METRIC_CHARTS` acima, intocado).
+   */
+  title: string;
+  series: [ComboSeriesConfig, ComboSeriesConfig];
+}
+
+/**
+ * Os 3 combos pedidos: Temperatura×Umidade, Índice UV×Chuva, Temperatura×
+ * Pressão. Todas as 5 métricas aqui já são buscadas pelos 5 `ChartCard`s de
+ * `METRIC_CHARTS` (mesmo `range`) — `comboSeries`/`comboIsPending` abaixo
+ * leem o MESMO resultado de `useQueries` por `metric` (`resultByMetric`),
+ * então nenhuma requisição de rede extra é feita (mesma `queryKey` = mesmo
+ * cache do React Query, dedupe automático — ver docstring de
+ * `seriesQueryOptions`).
+ */
+const COMBO_CHARTS: ComboChartConfig[] = [
+  {
+    key: "temperature-humidity",
+    title: "Temperatura × Umidade",
+    series: [
+      { metric: "temperature_c", label: "Temperatura", color: "var(--color-sensor-temperature)", unit: "°C" },
+      { metric: "humidity_pct", label: "Umidade", color: "var(--color-sensor-humidity)", unit: "%" },
+    ],
+  },
+  {
+    key: "uv-rain",
+    // "chuva média (mm)" no título (não só no rótulo da série): deixa claro
+    // de cara que este NÃO é o mesmo dado do card standalone "Chuva"
+    // (acumulado/bar) — pedido explícito do usuário do produto pra evitar
+    // confusão entre as duas semânticas de chuva coexistindo no dashboard.
+    title: "Índice UV × Chuva — chuva média (mm)",
+    series: [
+      { metric: "uv_index", label: "Índice UV", color: "var(--color-sensor-uv)", unit: "" },
+      { metric: "rain_mm", label: "Chuva (média)", color: "var(--color-sensor-rain)", unit: "mm" },
+    ],
+  },
+  {
+    key: "temperature-pressure",
+    title: "Temperatura × Pressão",
+    series: [
+      { metric: "temperature_c", label: "Temperatura", color: "var(--color-sensor-temperature)", unit: "°C" },
+      { metric: "pressure_hpa", label: "Pressão", color: "var(--color-sensor-pressure)", unit: "hPa" },
+    ],
+  },
+];
+
+type MetricSeriesResult = UseQueryResult<SeriesResponse, Error>;
+
+/** As 2 séries de um combo, já no shape de `ChartCard` (uma por métrica, unidade própria — ver `ComboSeriesConfig.unit`). Métrica sem dado (query pendente/vazia) contribui `[]` (mesma regra de `bucketsToLineSeries`), então um combo com só 1 das 2 métricas preenchida ainda desenha aquela série sozinha (não é tratado como card inteiro vazio, a não ser que AS DUAS estejam vazias — `isEmptySeries` do `ChartCard` já cobre isso). */
+function comboSeries(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): ChartSeries[] {
+  return config.series.flatMap((s) => bucketsToLineSeries(resultByMetric.get(s.metric)?.data, s.label, s.color, s.unit));
+}
+
+/** Um combo está "carregando" enquanto QUALQUER uma das suas 2 métricas ainda não tem resultado nem cache anterior (`isPending`, mesmo critério usado por `METRIC_CHARTS`/`ChartCardSkeleton` abaixo). */
+function comboIsPending(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): boolean {
+  return config.series.some((s) => resultByMetric.get(s.metric)?.isPending ?? true);
+}
+
+/** Eixo X / rótulos de tooltip do combo vêm da PRIMEIRA métrica do card (`series[0]`) — escolha arbitrária mas consistente (documentada aqui): as 2 métricas de um combo vêm da MESMA estação/ingestão por bucket (`PROJECT.md`), então os buckets tendem a estar alinhados; se uma métrica tiver um gap que a outra não tem, o rótulo de tempo daquele ponto específico pode desalinhar — limitação preexistente de `pointLabels` ser por CARD, não por série (fora do escopo desta tarefa, que pediu resolver o gap de UNIDADE, não o de rótulo). */
+function comboXLabels(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): string[] {
+  return buildXLabels(resultByMetric.get(config.series[0].metric)?.data);
+}
+
+function comboPointLabels(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): string[] {
+  return bucketsToPointLabels(resultByMetric.get(config.series[0].metric)?.data, "avg");
+}
+
 /**
  * Placeholder de carregamento inicial de UM `ChartCard` (T6.4 — spec.md edge
  * case "loading inicial → skeletons, não layout shift"). Mesma árvore de
@@ -291,6 +403,15 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
   const seriesResults = useQueries({
     queries: METRIC_CHARTS.map((config) => seriesQueryOptions(config.metric, range)),
   });
+
+  // Índice por `metric` dos MESMOS 5 resultados acima — os 3 combos
+  // (`COMBO_CHARTS`) leem daqui por nome de métrica (não por posição, já que
+  // um combo mistura 2 métricas que não são "a próxima da lista"), sem
+  // nenhum `useQueries`/`useQuery` adicional (dedupe do React Query, ver
+  // docstring de `COMBO_CHARTS`).
+  const resultByMetric = new Map<Metric, MetricSeriesResult>(
+    METRIC_CHARTS.map((config, index) => [config.metric, seriesResults[index]!]),
+  );
 
   // Banner de reconexão (UI-10): pelo menos uma métrica com a busca atual em
   // erro, mas ainda com `data` em cache (a última série boa conhecida, via
@@ -338,6 +459,33 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
               xLabels={buildXLabels(result.data)}
               pointLabels={bucketsToPointLabels(result.data, field)}
               unit={config.unit}
+            />
+          );
+        })}
+      </div>
+
+      {/* "Comparativos" — os 3 combos pedidos (2 métricas por card, ver
+          `COMBO_CHARTS`), numa seção própria abaixo do grid de métrica
+          única — mesmo grid responsivo (`md:grid-cols-2 xl:grid-cols-3`),
+          só com um heading (`<h2>`, mesmo estilo de seção usado em
+          `DemoGallery.tsx`) pra separar visualmente as duas categorias de
+          card sem misturar 5+3 no mesmo fluxo, o que confundiria "métrica
+          única" com "comparativo" pro usuário. */}
+      <h2 className="text-base font-semibold text-text-primary">Comparativos</h2>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {COMBO_CHARTS.map((config) => {
+          if (comboIsPending(config, resultByMetric)) {
+            return <ChartCardSkeleton key={config.key} title={config.title} />;
+          }
+
+          return (
+            <ChartCard
+              key={config.key}
+              title={config.title}
+              variant="line"
+              series={comboSeries(config, resultByMetric)}
+              xLabels={comboXLabels(config, resultByMetric)}
+              pointLabels={comboPointLabels(config, resultByMetric)}
             />
           );
         })}

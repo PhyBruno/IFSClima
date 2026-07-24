@@ -95,6 +95,24 @@ import { EmptyState } from "./EmptyState";
  *   barra, e falhar/lançar exceção por um prop shape "errado" seria mais
  *   frágil do que necessário para um componente de apresentação.
  *
+ * - **Unidade por série (`ChartSeries.unit`) — pedido do usuário do produto,
+ *   2026-07-24**: até aqui `unit` era só do CARD inteiro, porque na prática
+ *   só existia 1 série por card (`ChartsSection.METRIC_CHARTS`). Os 3 novos
+ *   cards "combo" (2 métricas de unidades diferentes no mesmo card, ex.
+ *   Temperatura °C × Umidade %, `ChartsSection.COMBO_CHARTS`) quebram essa
+ *   premissa: o tooltip de cada ponto e o eixo Y lateral precisam saber a
+ *   unidade de CADA série, não uma só. `ChartSeries.unit` é opcional — sem
+ *   valor, cai no `unit` do card (retrocompatibilidade total com os 5 cards
+ *   de métrica única, que nunca populam esse campo — ver `seriesUnit`).
+ *   Eixo Y: quando as séries de `variant="line"` têm unidades DIFERENTES,
+ *   mostrar um único número no eixo misturaria escalas sem sentido (ex. min
+ *   de %, max de °C) — a escolha foi ESCONDER o eixo nesse caso (`null`,
+ *   mesmo tratamento do estado vazio, ver `computeAxisRange`) e confiar na
+ *   legenda colorida (já indica qual cor é qual métrica) + no tooltip por
+ *   ponto (já mostra valor+unidade exatos de CADA série), em vez de
+ *   implementar um eixo duplo esquerda/direita — mais simples e não fica
+ *   "quebrado", só omite um número que seria enganoso.
+ *
  * - **Estado vazio (DS-04)**: `EmptyState` (reaproveitado de T5.3a) é
  *   renderizado no lugar do `<svg>` quando não há o que desenhar — cenário
  *   real, não hipotético (F4 `READ-08`: séries vazias retornam `buckets:
@@ -117,6 +135,15 @@ export interface ChartSeries {
   /** Cor CSS literal (hex/rgb/var), aplicada via `stroke`/`fill` inline. */
   color: string;
   points: number[];
+  /**
+   * Unidade DESTA série (ex. "°C", "%") — usada no tooltip e no eixo Y
+   * lateral. Omitida = cai no `unit` do CARD inteiro (`ChartCardProps.unit`),
+   * o mesmo comportamento de sempre — os 5 cards de métrica única
+   * (`ChartsSection.METRIC_CHARTS`) nunca populam este campo. Existe pros
+   * cards "combo" (2 métricas de unidades diferentes, ver docstring do
+   * componente, bullet "Unidade por série").
+   */
+  unit?: string;
 }
 
 export type ChartCardVariant = "line" | "bar";
@@ -192,6 +219,11 @@ function tooltipText(label: string | undefined, value: number, unit: string): st
   return label ? `${label} — ${formatted}` : formatted;
 }
 
+/** Unidade "efetiva" de uma série: a dela própria (`ChartSeries.unit`), com fallback pro `unit` do card inteiro (ver docstring do componente, bullet "Unidade por série"). */
+function seriesUnit(s: ChartSeries, cardUnit: string): string {
+  return s.unit ?? cardUnit;
+}
+
 interface LineChartProps {
   series: ChartSeries[];
   pointLabels: string[] | undefined;
@@ -264,13 +296,17 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
               const key = `${seriesIndex}-${pointIndex}`;
               const isActive = activeKey === key;
               const label = pointLabels?.[pointIndex];
+              // Unidade DESTA série, não a do card (ver `seriesUnit`) — um
+              // combo de 2 métricas (ex. °C × %) precisa que o tooltip de
+              // cada ponto mostre a unidade certa da série que ele pertence.
+              const pointUnit = seriesUnit(s, unit);
 
               function activate() {
                 setActiveKey(key);
                 onHover({
                   xPercent: c.x,
                   yPercent: (c.y / VIEWBOX_HEIGHT) * 100,
-                  text: tooltipText(label, c.value, unit),
+                  text: tooltipText(label, c.value, pointUnit),
                 });
               }
 
@@ -298,7 +334,7 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
                     fill="transparent"
                     tabIndex={0}
                     data-testid="chart-point-hit"
-                    aria-label={tooltipText(label, c.value, unit)}
+                    aria-label={tooltipText(label, c.value, pointUnit)}
                     onMouseEnter={activate}
                     onMouseLeave={deactivate}
                     onFocus={activate}
@@ -388,28 +424,50 @@ function BarChart({ points, color, pointLabels, unit, onHover }: BarChartProps) 
   );
 }
 
-/** Min/max pra escala lateral (eixo Y). `bar`: baseline sempre 0. `line`: união de todos os pontos de todas as séries (ver docstring do componente — no app real é sempre 1 série só). */
-function computeAxisRange(series: ChartSeries[], variant: ChartCardVariant): { min: number; max: number } | null {
+/**
+ * Min/max + unidade pra escala lateral (eixo Y). `bar`: baseline sempre 0,
+ * unidade da (única) série desenhada (`series[0]`). `line`: união de todos
+ * os pontos de todas as séries que COMPARTILHAM a mesma unidade efetiva
+ * (`seriesUnit`) — no app real hoje isso é sempre 1 unidade só (5 cards de
+ * métrica única, ou os 3 combos, cujas 2 séries têm unidades DIFERENTES de
+ * propósito). Quando há mais de uma unidade em jogo entre as séries de
+ * linha, o eixo é ESCONDIDO (retorna `null`, ver bullet "Unidade por série"
+ * na docstring do componente) — a união min/max de °C com % não seria um
+ * eixo com sentido nenhum.
+ */
+function computeAxisRange(
+  series: ChartSeries[],
+  variant: ChartCardVariant,
+  cardUnit: string,
+): { min: number; max: number; unit: string } | null {
   if (variant === "bar") {
-    const points = series[0]?.points ?? [];
-    if (points.length === 0) {
+    const first = series[0];
+    const points = first?.points ?? [];
+    if (!first || points.length === 0) {
       return null;
     }
-    return { min: 0, max: Math.max(...points, 0) };
+    return { min: 0, max: Math.max(...points, 0), unit: seriesUnit(first, cardUnit) };
   }
 
-  const allPoints = series.flatMap((s) => s.points);
-  if (allPoints.length === 0) {
+  const nonEmpty = series.filter((s) => s.points.length > 0);
+  if (nonEmpty.length === 0) {
     return null;
   }
-  return { min: Math.min(...allPoints), max: Math.max(...allPoints) };
+
+  const units = new Set(nonEmpty.map((s) => seriesUnit(s, cardUnit)));
+  if (units.size > 1) {
+    return null;
+  }
+
+  const allPoints = nonEmpty.flatMap((s) => s.points);
+  return { min: Math.min(...allPoints), max: Math.max(...allPoints), unit: [...units][0]! };
 }
 
 export function ChartCard({ title, variant, series, xLabels, pointLabels, unit = "", className = "" }: ChartCardProps) {
   const empty = isEmptySeries(series, variant);
   const barSeries = series[0];
   const [hover, setHover] = useState<HoverInfo | null>(null);
-  const axisRange = empty ? null : computeAxisRange(series, variant);
+  const axisRange = empty ? null : computeAxisRange(series, variant, unit);
 
   return (
     <Card
@@ -450,11 +508,11 @@ export function ChartCard({ title, variant, series, xLabels, pointLabels, unit =
               >
                 <span>
                   {formatValue(axisRange.max)}
-                  {unit}
+                  {axisRange.unit}
                 </span>
                 <span>
                   {formatValue(axisRange.min)}
-                  {unit}
+                  {axisRange.unit}
                 </span>
               </div>
             ) : null}
@@ -471,7 +529,7 @@ export function ChartCard({ title, variant, series, xLabels, pointLabels, unit =
                   points={barSeries!.points}
                   color={barSeries!.color}
                   pointLabels={pointLabels}
-                  unit={unit}
+                  unit={seriesUnit(barSeries!, unit)}
                   onHover={setHover}
                 />
               )}
