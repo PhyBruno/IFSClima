@@ -9,6 +9,14 @@ export interface IngestRouteOptions {
   getIngestApiKey: () => string;
   /** Resolvida por requisição — permite refletir MAX_BATCH do env em runtime. */
   getMaxBatch: () => number;
+  /**
+   * T7.2 (QA-07): rate limit aplicado só a esta rota (via `config.rateLimit`
+   * do `@fastify/rate-limit`, registrado com `global: false` em `app.ts` —
+   * ver comentário lá sobre não afetar o polling do dashboard). Opcional
+   * para não quebrar chamadas diretas de `ingestRoute` em testes que não
+   * registram o plugin de rate limit.
+   */
+  rateLimit?: { max: number; timeWindow: number };
 }
 
 /** Limite de tamanho de corpo HTTP (bytes) — mitigação de payload gigante (tasks.md T3.5). */
@@ -37,13 +45,17 @@ export async function ingestRoute(
   app: FastifyInstance,
   options: IngestRouteOptions,
 ): Promise<void> {
-  const { ingestService, getIngestApiKey, getMaxBatch } = options;
+  const { ingestService, getIngestApiKey, getMaxBatch, rateLimit } = options;
 
   app.post(
     "/api/v1/ingest",
     {
       bodyLimit: INGEST_BODY_LIMIT_BYTES,
       preHandler: createApiKeyAuthPreHandler(getIngestApiKey),
+      // T7.2 (QA-07): `undefined` (sem plugin de rate limit registrado no
+      // encapsulamento) faz o `@fastify/rate-limit` tratar como "sem
+      // rate limit" nessa rota — mesmo comportamento de omitir a chave.
+      config: rateLimit ? { rateLimit } : undefined,
     },
     async (request, reply) => {
       const maxBatch = getMaxBatch();

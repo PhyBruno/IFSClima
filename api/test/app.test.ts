@@ -12,3 +12,17 @@ describe("buildApp", () => {
     await app.close();
   });
 });
+
+describe("helmet (T7.2 — QA-08)", () => {
+  it("qualquer resposta inclui os headers de segurança default do @fastify/helmet", async () => {
+    const app = buildApp({ checkDb: async () => undefined });
+
+    const response = await app.inject({ method: "GET", url: "/health" });
+
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["x-frame-options"]).toBe("SAMEORIGIN");
+    expect(response.headers["x-dns-prefetch-control"]).toBeDefined();
+
+    await app.close();
+  });
+});
