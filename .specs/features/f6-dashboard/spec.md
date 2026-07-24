@@ -6,9 +6,9 @@ O usuário precisa ver os dados da estação. Precisamos da página do dashboard
 
 ## Goals
 
-- [ ] Página única com cards por sensor (leitura atual) + gráficos históricos.
-- [ ] Seletor de período (24h/7d/30d) que atualiza os gráficos.
-- [ ] Atualização automática (polling) e responsividade total.
+- [x] Página única com cards por sensor (leitura atual) + gráficos históricos.
+- [x] Seletor de período (24h/7d/30d) que atualiza os gráficos.
+- [x] Atualização automática (polling) e responsividade total.
 
 ## Out of Scope
 
@@ -80,21 +80,21 @@ O usuário precisa ver os dados da estação. Precisamos da página do dashboard
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| UI-01 | P1: 5 cards com valor atual | Design | Pending |
-| UI-02 | P1: estado nulo por card | Design | Pending |
-| UI-03 | P1: "atualizado há X" | Design | Pending |
-| UI-04 | P1: estado vazio global | Design | Pending |
-| UI-05 | P1: gráficos por métrica | Design | Pending |
-| UI-06 | P1: seletor de período recarrega | Design | Pending |
-| UI-07 | P1: chuva como barras (sum) | Design | Pending |
-| UI-08 | P2: polling do latest | Design | Pending |
-| UI-09 | P2: responsividade mobile | Design | Pending |
-| UI-10 | P2: resiliência a erro de rede | Design | Pending |
+| UI-01 | P1: 5 cards com valor atual | Done | Done |
+| UI-02 | P1: estado nulo por card | Done | Done |
+| UI-03 | P1: "atualizado há X" | Done | Done |
+| UI-04 | P1: estado vazio global | Done | Done |
+| UI-05 | P1: gráficos por métrica | Done | Done |
+| UI-06 | P1: seletor de período recarrega | Done | Done |
+| UI-07 | P1: chuva como barras (sum) | Done | Done |
+| UI-08 | P2: polling do latest | Done | Done |
+| UI-09 | P2: responsividade mobile | Done | Done |
+| UI-10 | P2: resiliência a erro de rede | Done | Done |
 
 ---
 
 ## Success Criteria
 
-- [ ] Dashboard fiel ao design, responsivo, com cards + gráficos funcionais.
-- [ ] Consome F4 corretamente; estados de loading/erro/vazio tratados.
-- [ ] Testes de componente/integração (RTL + MSW) ≥80%.
+- [x] Dashboard fiel ao design, responsivo, com cards + gráficos funcionais.
+- [x] Consome F4 corretamente; estados de loading/erro/vazio tratados.
+- [x] Testes de componente/integração (RTL + MSW) ≥80%.

@@ -22,6 +22,7 @@ Memória persistente: decisões, blockers, lições, todos e ideias adiadas.
 | D14 | 2026-07-23 | `createDb` força `timezone=UTC` na sessão Postgres (`pg.Pool({ options: "-c timezone=UTC" })`) | Code review de F4: `date_trunc('day', ...)` do bucket de 30d dependia implicitamente do timezone default do servidor (só "funcionava" pq `postgres:16-alpine` já vem em UTC); agora é explícito e testado (`test/db/client.test.ts`) |
 | D15 | 2026-07-23 | Removida a env `API_KEY` (reservada desde F1, nunca usada por nenhuma rota) | Code review de F4: só `INGEST_API_KEY` autentica `POST /api/v1/ingest`; manter as duas confundia operadores. Se surgir necessidade real de uma chave genérica (ex.: auth de admin numa feature futura), reintroduzir com nome específico ao seu uso |
 | D16 | 2026-07-23 | F5: tema **claro entra no escopo do v1** (não é mais adiado pra v2); toggle claro/escuro com **escuro como default** | Pedido do usuário durante a execução de F5. O design original já tem os dois temas mockados + um toggle "Modo escuro" — é extração fiel, não design novo. Reabre parte de T5.1 (extração focou só em dark) — ver T5.1b em `f5-design-system/spec.md` |
+| D17 | 2026-07-24 | F6 T6.5: header de `DashboardPage` mostra só título + `StatusPill` inline (status global de conectividade), sem repetir "atualizado há X" | `SensorGrid` (T6.2) já renderiza sua própria legenda "atualizado há X" acima do grid — duplicá-la no header mostraria o mesmo dado duas vezes na tela. `online` do pill reflete conectividade (`!isError`), não se já existe alguma leitura (`timestamp !== null` é um caso distinto, tratado pelo `EmptyState` dentro de `SensorGrid`). Sem sidebar/nav (fora do escopo de F6 — só uma tela) |
 
 ## Blockers
 
@@ -51,7 +52,8 @@ Próxima fase (aguardando OK do usuário para implementar):
 - [x] Implementar F3 (endpoint `POST /api/v1/ingest`, auth `X-API-Key`, idempotência, rejeição por item)
 - [x] Implementar F4 (endpoints `GET /readings/latest` e `GET /readings/series`, agregação `date_trunc` por hora/dia)
 - [x] Implementar F5 (design system: tokens Tailwind/CSS vars nos dois temas, 7 componentes base testados — Card, StatCard, ChartCard, PeriodSelector, StatusPill, EmptyState, ThemeToggle —, galeria de demo `/__ui`)
-- [ ] Implementar F6 → F7
+- [x] Implementar F6 (dashboard: api-client + React Query, `SensorGrid`, `ChartsSection` com `PeriodSelector`, resiliência/skeletons, `DashboardPage` montada como rota raiz em `App.tsx`)
+- [ ] Implementar F7
 
 ## Deferred Ideas
 
