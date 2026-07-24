@@ -1,28 +1,36 @@
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../mocks/server";
 import { createQueryClient } from "../../src/providers/QueryProvider";
 import { SensorGrid } from "../../src/components/SensorGrid";
+import { LATEST_QUERY_KEY } from "../../src/hooks/useLatest";
 import { emptyLatestFixture, latestFixture } from "../fixtures/readings";
 
 /**
- * `SensorGrid` (F6 T6.2) — compõe `StatCard` (F5) a partir de `useLatest`
- * (T6.1). MSW mocka `GET /api/v1/readings/latest`; fixtures sintéticas de
+ * `SensorGrid` (F6 T6.2/T6.4) — compõe `StatCard` (F5) a partir de
+ * `useLatest` (T6.1), com skeleton de loading + banner de reconexão (T6.4).
+ * MSW mocka `GET /api/v1/readings/latest`; fixtures sintéticas de
  * `test/fixtures/readings.ts` (mesmas usadas pelos testes de T6.1), sem
  * relação com dados reais da estação.
  */
-function createWrapper() {
-  const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  };
+function createClient(): QueryClient {
+  return createQueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
-function renderGrid() {
-  return render(<SensorGrid />, { wrapper: createWrapper() });
+/**
+ * Recebe/cria o `QueryClient` e devolve junto com o resultado de `render` —
+ * os testes de T6.4 (erro após sucesso) precisam do MESMO client usado no
+ * render para forçar um refetch manual via `client.refetchQueries`, em vez
+ * de esperar os 60s reais do polling (`LATEST_POLL_INTERVAL_MS`).
+ */
+function renderGrid(client: QueryClient = createClient()) {
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  }
+  return { ...render(<SensorGrid />, { wrapper: Wrapper }), client };
 }
 
 describe("SensorGrid", () => {
@@ -85,5 +93,51 @@ describe("SensorGrid", () => {
 
     expect(await screen.findByRole("heading", { name: /nenhuma leitura/i })).toBeInTheDocument();
     expect(screen.queryAllByTestId("statcard")).toHaveLength(0);
+  });
+
+  it("T6.4: mostra skeleton durante o carregamento inicial (sem dado em cache ainda) — sem tela em branco", () => {
+    renderGrid();
+
+    // Sem `await`/`waitFor` de propósito: MSW resolve de forma assíncrona, e
+    // é exatamente o instante síncrono pós-render (antes do fetch resolver)
+    // que este teste cobre — `isPending` do React Query, ainda sem `data`.
+    expect(screen.getAllByTestId("statcard-skeleton")).toHaveLength(5);
+    expect(screen.queryAllByTestId("statcard")).toHaveLength(0);
+  });
+
+  it("T6.4/UI-09: grid dos cards é responsivo (2 colunas mobile, 3 no breakpoint md:)", async () => {
+    renderGrid();
+
+    await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+
+    const grid = screen.getAllByTestId("statcard")[0]!.parentElement!;
+    expect(grid).toHaveClass("grid", "grid-cols-2", "md:grid-cols-3");
+  });
+
+  it("T6.4/UI-10: erro de rede numa atualização (polling) mantém os cards com o último dado e mostra o banner 'reconectando'", async () => {
+    const { client } = renderGrid();
+    await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+    expect(screen.getByText("24.7")).toBeInTheDocument();
+
+    server.use(http.get("/api/v1/readings/latest", () => new HttpResponse(null, { status: 500 })));
+    // Simula o próximo ciclo de polling falhando, sem esperar os 60s reais.
+    await client.refetchQueries({ queryKey: LATEST_QUERY_KEY }).catch(() => {});
+
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    expect(screen.getByText(/reconectando/i)).toBeInTheDocument();
+    // Nunca tela branca: os 5 cards e o valor antigo continuam visíveis.
+    expect(screen.getAllByTestId("statcard")).toHaveLength(5);
+    expect(screen.getByText("24.7")).toBeInTheDocument();
+  });
+
+  it("T6.4/UI-10: falha já na primeira busca (sem dado em cache) mostra o banner, sem quebrar nem inventar cards", async () => {
+    server.use(http.get("/api/v1/readings/latest", () => new HttpResponse(null, { status: 500 })));
+
+    renderGrid();
+
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    expect(screen.getByText(/reconectando/i)).toBeInTheDocument();
+    expect(screen.queryAllByTestId("statcard")).toHaveLength(0);
+    expect(screen.queryAllByTestId("statcard-skeleton")).toHaveLength(0);
   });
 });

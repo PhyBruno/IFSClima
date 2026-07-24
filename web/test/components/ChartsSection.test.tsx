@@ -182,17 +182,15 @@ describe("ChartsSection (integração RTL + MSW)", () => {
 
     render(<ChartsSection />, { wrapper: createWrapper() });
 
-    const rainCard = (await screen.findByText("Chuva")).closest('[data-testid="chartcard"]');
-    expect(rainCard).not.toBeNull();
+    // T6.4: cada card nasce como `ChartCardSkeleton` (`isPending`, sem dado
+    // em cache ainda, `data-testid="chartcard-skeleton"`) e só vira o
+    // `ChartCard` real (`data-testid="chartcard"`) quando o fetch resolve.
+    // Espera os 5 `chartcard` REAIS existirem antes de procurar o de Chuva
+    // especificamente — checar só o de Chuva isolado seria frágil aqui.
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(5));
 
-    // O card nasce com EmptyState (query ainda sem dado) e troca para o svg
-    // assim que o fetch resolve — espera a troca em vez de olhar a primeira
-    // renderização.
-    await waitFor(() => {
-      expect(rainCard!.querySelector('[data-testid="chart-svg"]')).not.toBeNull();
-    });
-
-    const svg = rainCard!.querySelector('[data-testid="chart-svg"]')!;
+    const rainCard = screen.getByText("Chuva").closest('[data-testid="chartcard"]')!;
+    const svg = rainCard.querySelector('[data-testid="chart-svg"]')!;
     expect(svg.querySelectorAll("rect")).toHaveLength(2);
     expect(svg.querySelectorAll("polyline")).toHaveLength(0);
   });
@@ -205,5 +203,52 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     const emptyMessages = await screen.findAllByText("Nenhum dado no período");
     // 5 métricas, todas sem dado no período selecionado.
     expect(emptyMessages).toHaveLength(5);
+  });
+
+  it("T6.4: mostra skeleton por gráfico durante o carregamento inicial (sem dado em cache ainda)", () => {
+    render(<ChartsSection />, { wrapper: createWrapper() });
+
+    // Sem `await`/`waitFor` de propósito — o instante síncrono pós-render
+    // (antes do MSW resolver) é exatamente o que este teste cobre.
+    expect(screen.getAllByTestId("chartcard-skeleton")).toHaveLength(5);
+    expect(screen.queryAllByTestId("chartcard")).toHaveLength(0);
+  });
+
+  it("T6.4/UI-09: grid de gráficos é responsivo (1 coluna mobile, 2 no breakpoint md:)", async () => {
+    render(<ChartsSection />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(5));
+
+    const grid = screen.getAllByTestId("chartcard")[0]!.parentElement!;
+    expect(grid).toHaveClass("grid", "grid-cols-1", "md:grid-cols-2");
+  });
+
+  it("T6.4/UI-10: erro numa atualização em segundo plano mantém os gráficos com o último dado e mostra o banner 'reconectando'", async () => {
+    // `placeholderData: keepPreviousData` só cobre o intervalo de LOADING ao
+    // trocar de queryKey (range/metric) — uma vez que a NOVA key falha de
+    // vez, `data` volta a `undefined` (comportamento padrão do React Query:
+    // placeholder não sobrevive a um `status: 'error'` definitivo de uma key
+    // que nunca teve sucesso). O "nunca tela branca" de UI-10 para uma query
+    // que JÁ teve sucesso é o cache normal (mesma `queryKey`, sem precisar
+    // de `keepPreviousData` — mesma decisão já documentada em `useLatest.ts`)
+    // — por isso este teste refaz a MESMA `range=24h` já bem-sucedida (não
+    // troca de período), igual ao cenário real de "a atualização seguinte
+    // falhou" (aqui forçado via `client.refetchQueries`, já que `ChartsSection`
+    // não faz polling automático de séries, diferente de `useLatest`).
+    const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    }
+    render(<ChartsSection />, { wrapper: Wrapper });
+
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(5));
+
+    server.use(http.get("/api/v1/readings/series", () => new HttpResponse(null, { status: 500 })));
+    await client.refetchQueries({ queryKey: ["readings", "series"] }).catch(() => {});
+
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    expect(screen.getByText(/reconectando/i)).toBeInTheDocument();
+    // Nunca tela branca: os 5 gráficos (com o dado de 24h já carregado) continuam visíveis.
+    expect(screen.getAllByTestId("chartcard")).toHaveLength(5);
   });
 });

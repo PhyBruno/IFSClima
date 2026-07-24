@@ -1,13 +1,19 @@
 import { useState } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { ChartCard, type ChartSeries } from "./ChartCard";
 import { PeriodSelector, type PeriodOption } from "./PeriodSelector";
-import { useSeries } from "../hooks/useSeries";
+import { Card } from "./Card";
+import { Skeleton } from "./Skeleton";
+import { ConnectionBanner } from "./ConnectionBanner";
+import { seriesQueryOptions } from "../hooks/useSeries";
+import { formatTime, formatDayMonth } from "../utils/formatTime";
 import type { BucketUnit, Metric, Range, SeriesBucket, SeriesResponse } from "../api-client";
 
 /**
- * `ChartsSection` — F6 T6.3 (design.md "Layout"/"Arquitetura frontend"):
- * `PeriodSelector` (F5) + um `ChartCard` (F5) por métrica, ligados por um
- * único estado de período compartilhado. Reusa F5/T6.1 tal como estão — não
+ * `ChartsSection` — F6 T6.3/T6.4 (design.md "Layout"/"Arquitetura
+ * frontend"): `PeriodSelector` (F5) + um `ChartCard` (F5) por métrica,
+ * ligados por um único estado de período compartilhado, com skeleton de
+ * loading e banner de reconexão (T6.4). Reusa F5/T6.1 tal como estão — não
  * recria seletor, cartão de gráfico, client HTTP nem hooks de dados.
  *
  * **Período em `?range=` (URL), não `useState` "solto"**: design.md decide
@@ -40,6 +46,21 @@ import type { BucketUnit, Metric, Range, SeriesBucket, SeriesResponse } from "..
  * `ChartCard`, então só `avg` é desenhado. `min`/`max` continuam disponíveis
  * no payload para uma extensão futura que dê ao `ChartCard` um modo de banda
  * de verdade (fora do escopo desta tarefa — não é alteração de F5).
+ *
+ * **`useQueries`, não `useSeries` por gráfico (T6.4).** T6.3 chamava
+ * `useSeries` dentro de um componente `MetricChart` por métrica — 5
+ * instâncias de componente, 5 chamadas de hook, uma por elemento da árvore.
+ * T6.4 precisa saber o status (`isPending`/`isError`) de TODAS as 5 séries
+ * NO NÍVEL DO `ChartsSection` (pra decidir o skeleton por card e agregar um
+ * banner de reconexão único da seção) — chamar `useSeries` dentro de um
+ * `.map()` sobre `METRIC_CHARTS` violaria as Rules of Hooks
+ * (`react-hooks/rules-of-hooks`, ver `web/.eslintrc.cjs`, mesmo
+ * `METRIC_CHARTS` sendo um array de tamanho fixo, o lint não consegue provar
+ * isso estaticamente). `useQueries` é o hook do próprio React Query
+ * desenhado para "N queries a partir de um array" — usa a mesma definição de
+ * query (`seriesQueryOptions`, extraída de `useSeries.ts` nesta tarefa) que
+ * `useSeries` usaria, então não há duplicação de `queryKey`/`queryFn`/
+ * `placeholderData` nem requests extras (mesma `queryKey` = mesmo cache).
  */
 
 const RANGE_VALUES: Range[] = ["24h", "7d", "30d"];
@@ -71,16 +92,15 @@ export function buildSearchWithRange(search: string, range: Range): string {
   return query ? `?${query}` : "";
 }
 
-function pad(value: number): string {
-  return value.toString().padStart(2, "0");
-}
-
-/** `t` (UTC) → rótulo no fuso LOCAL do cliente (design.md "Timezone: formatar no cliente a partir de UTC"). */
+/**
+ * `t` (UTC) → rótulo no fuso LOCAL do cliente (design.md "Timezone: formatar
+ * no cliente a partir de UTC"). T6.4: delega a `formatTime`/`formatDayMonth`
+ * (`web/src/utils/formatTime.ts`) em vez de reimplementar o padding
+ * `HH:MM`/`DD/MM` aqui — mesma lógica agora compartilhada com
+ * `ConnectionBanner` (horário absoluto da última leitura conhecida).
+ */
 function formatBucketLabel(t: string, unit: BucketUnit): string {
-  const date = new Date(t);
-  return unit === "hour"
-    ? `${pad(date.getHours())}:${pad(date.getMinutes())}`
-    : `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`;
+  return unit === "hour" ? formatTime(t) : formatDayMonth(t);
 }
 
 /** Rótulos de eixo X: só extremos (primeiro/último bucket) — `ChartCard` espalha o array recebido com `justify-between`, não é 1:1 posicional com os pontos (ver uso em `DemoGallery`). */
@@ -153,20 +173,24 @@ const METRIC_CHARTS: MetricChartConfig[] = [
   { metric: "uv_index", title: "Índice UV", color: "var(--color-sensor-uv)", variant: "line" },
 ];
 
-function MetricChart({ config, range }: { config: MetricChartConfig; range: Range }) {
-  const { data } = useSeries(config.metric, range);
-  const series =
-    config.variant === "bar"
-      ? bucketsToBarSeries(data, config.title, config.color)
-      : bucketsToLineSeries(data, config.title, config.color);
-
+/**
+ * Placeholder de carregamento inicial de UM `ChartCard` (T6.4 — spec.md edge
+ * case "loading inicial → skeletons, não layout shift"). Mesma árvore de
+ * classes do `ChartCard` real (`Card`, padding, título) — só o corpo
+ * (`<svg>` de `h-20`) vira um `Skeleton` do mesmo tamanho, pra não pular o
+ * layout quando os dados chegam. O título é mostrado desde já (não depende
+ * de dado nenhum), igual ao cabeçalho do `ChartCard` real.
+ */
+function ChartCardSkeleton({ title }: { title: string }) {
   return (
-    <ChartCard
-      title={config.title}
-      variant={config.variant}
-      series={series}
-      xLabels={buildXLabels(data)}
-    />
+    <Card
+      padding="none"
+      data-testid="chartcard-skeleton"
+      className="flex flex-col gap-3 p-[12px_14px] md:p-5"
+    >
+      <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+      <Skeleton className="h-20 w-full" />
+    </Card>
   );
 }
 
@@ -174,9 +198,19 @@ export interface ChartsSectionProps {
   className?: string;
 }
 
-/** Seletor de período (`?range=`) + um `ChartCard` por métrica (F6 T6.3). */
+/** Seletor de período (`?range=`) + um `ChartCard` por métrica, com skeleton/banner de reconexão (F6 T6.3/T6.4). */
 export function ChartsSection({ className = "" }: ChartsSectionProps) {
   const [range, setRange] = useState<Range>(() => getRangeFromSearch(window.location.search));
+
+  const seriesResults = useQueries({
+    queries: METRIC_CHARTS.map((config) => seriesQueryOptions(config.metric, range)),
+  });
+
+  // Banner de reconexão (UI-10): pelo menos uma métrica com a busca atual em
+  // erro, mas ainda com `data` em cache (a última série boa conhecida, via
+  // `placeholderData: keepPreviousData` de `seriesQueryOptions`) — nunca
+  // esconde os gráficos, só avisa que estão desatualizados.
+  const anyStaleError = seriesResults.some((result) => result.isError && result.data !== undefined);
 
   function handleRangeChange(value: string) {
     if (!isRange(value)) {
@@ -191,10 +225,33 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
   return (
     <section className={`flex flex-col gap-4 ${className}`.trim()}>
       <PeriodSelector options={RANGE_OPTIONS} value={range} onChange={handleRangeChange} />
+      <ConnectionBanner show={anyStaleError} />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {METRIC_CHARTS.map((config) => (
-          <MetricChart key={config.metric} config={config} range={range} />
-        ))}
+        {METRIC_CHARTS.map((config, index) => {
+          // `seriesResults` está na MESMA ordem/tamanho de `METRIC_CHARTS`
+          // (garantido pelo `useQueries({ queries: METRIC_CHARTS.map(...) })`
+          // acima) — índice posicional, não busca por metric.
+          const result = seriesResults[index]!;
+
+          if (result.isPending) {
+            return <ChartCardSkeleton key={config.metric} title={config.title} />;
+          }
+
+          const series =
+            config.variant === "bar"
+              ? bucketsToBarSeries(result.data, config.title, config.color)
+              : bucketsToLineSeries(result.data, config.title, config.color);
+
+          return (
+            <ChartCard
+              key={config.metric}
+              title={config.title}
+              variant={config.variant}
+              series={series}
+              xLabels={buildXLabels(result.data)}
+            />
+          );
+        })}
       </div>
     </section>
   );
