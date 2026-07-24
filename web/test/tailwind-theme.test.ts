@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import tailwindConfig from "../tailwind.config.js";
 import {
   expectedBorderRadiusExtend,
-  expectedBoxShadowFrame,
+  expectedBoxShadowVars,
   expectedColorTokens,
   expectedFontFamilySans,
   tailwindVarValue,
@@ -17,7 +17,7 @@ interface ExpectedTailwindConfig {
     extend: {
       colors: Record<string, Record<string, string>>;
       fontFamily: { sans: string[] };
-      boxShadow: { frame: string };
+      boxShadow: Record<string, string>;
       borderRadius: Record<string, string>;
     };
   };
@@ -26,7 +26,7 @@ interface ExpectedTailwindConfig {
 // `tailwind.config.js` só é consultado pelo build do PostCSS/Tailwind (não
 // gera CSS dentro do jsdom do Vitest) — este teste garante que o objeto de
 // config em si não sofre regressão de valores, servindo de snapshot vivo dos
-// tokens extraídos em T5.1.
+// tokens extraídos em T5.1/T5.1b (dark + light, T5.2/T5.2b).
 describe("tailwind.config.js — theme.extend", () => {
   const { theme } = tailwindConfig as unknown as ExpectedTailwindConfig;
   const { colors, fontFamily, boxShadow, borderRadius } = theme.extend;
@@ -59,8 +59,14 @@ describe("tailwind.config.js — theme.extend", () => {
     expect(fontFamily.sans).toEqual(expectedFontFamilySans);
   });
 
-  it("boxShadow.frame é a única sombra real do design (container externo)", () => {
-    expect(boxShadow.frame).toBe(expectedBoxShadowFrame);
+  it("boxShadow mapeia cada chave esperada para a CSS var correspondente (T5.2b: todas viram var, nenhuma hardcoded)", () => {
+    for (const [key, value] of Object.entries(expectedBoxShadowVars)) {
+      expect(boxShadow[key]).toBe(value);
+    }
+  });
+
+  it("não introduz chaves de boxShadow além das esperadas", () => {
+    expect(Object.keys(boxShadow).sort()).toEqual(Object.keys(expectedBoxShadowVars).sort());
   });
 
   it("borderRadius estende apenas os valores sem equivalente na escala default do Tailwind", () => {

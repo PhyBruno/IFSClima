@@ -22,4 +22,25 @@ describe("smoke: classes do tema Tailwind", () => {
 
     expect(screen.getByTestId("sensor-smoke")).toHaveClass("text-sensor-temperature");
   });
+
+  // T5.2b: novas categorias/chaves adicionadas pro tema claro (mesma classe,
+  // valor resolve diferente conforme data-theme — não testamos a troca em si
+  // aqui, só que a classe continua existindo/aplicável, igual ao smoke acima.
+  it("aplica classes novas de T5.2b (nav ativo, painel de status, sombra de card)", () => {
+    render(
+      <div
+        data-testid="theme-light-smoke"
+        className="bg-nav-active-bg text-nav-active-text bg-surface-status-panel shadow-card border-border-frame"
+      />,
+    );
+
+    const element = screen.getByTestId("theme-light-smoke");
+    expect(element).toHaveClass(
+      "bg-nav-active-bg",
+      "text-nav-active-text",
+      "bg-surface-status-panel",
+      "shadow-card",
+      "border-border-frame",
+    );
+  });
 });
