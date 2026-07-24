@@ -69,7 +69,10 @@ export function DashboardPage() {
           generosa de sobra, não só o mínimo. Sem padding extra a partir de
           md: (BottomNav some, vira Sidebar). */}
       <main className="flex-1 px-4 pb-32 pt-6 md:px-8 md:pb-8 md:pt-8">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6">
+        {/* max-w-5xl (1024px) sobrava espaço vazio óbvio em desktops largos
+            (feedback do usuário, 2026-07-24) — 1600px aproveita a largura
+            real ao lado da Sidebar sem esticar demais em ultrawide. */}
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
           <header className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-xl font-bold md:text-2xl">Estação Meteorológica</h1>
           </header>

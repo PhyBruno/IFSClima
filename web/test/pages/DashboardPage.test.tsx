@@ -18,12 +18,15 @@ import { emptyLatestFixture, latestFixture } from "../fixtures/readings";
  * **Regra de offline (feedback do usuário, 2026-07-24):** a estação só é
  * "offline" sem conexão nas ÚLTIMAS 24H (`age_seconds > 86400`) ou sem
  * nenhuma leitura ainda (`timestamp === null`) — nunca por um erro
- * transitório de fetch isolado (isso é `ConnectionBanner` dentro de
- * `SensorGrid`/`ChartsSection`, um indicador DIFERENTE, com seu próprio
- * `role="status"`). Só existe UM indicador na tela: uma notificação
+ * transitório de fetch isolado. Uma busca que falha SEM nenhum dado em cache
+ * não mostra mais um "card"/banner de erro dedicado (revisão de
+ * `SensorGrid`, 2026-07-24): mostra os mesmos 5 `StatCard` em "sem sinal".
+ * `ConnectionBanner` (`role="status"`, "Reconectando…") só aparece quando JÁ
+ * havia dado bom em cache e uma atualização seguinte falhou — cenário
+ * diferente, coberto em `SensorGrid.test.tsx`/`ChartsSection.test.tsx`, não
+ * neste arquivo. Só existe UM indicador de "estação offline": a notificação
  * flutuante no canto superior direito (`StatusPill` variante `card`, texto
- * "Offline" — nunca "Reconectando…", que não existe fora de
- * `ConnectionBanner`).
+ * "Offline" — nunca "Reconectando…").
  */
 let originalTZ: string | undefined;
 beforeAll(() => {
@@ -117,16 +120,17 @@ describe("DashboardPage", () => {
     expect(within(notification).queryByText(/última leitura/i)).not.toBeInTheDocument();
   });
 
-  it("status: erro transitório de fetch (sem dado em cache) NÃO aciona a notificação de offline — quem comunica é o ConnectionBanner de SensorGrid", async () => {
+  it("status: erro transitório de fetch (sem dado em cache) NÃO aciona a notificação de offline — SensorGrid mostra os 5 cards em 'sem sinal', sem banner", async () => {
     server.use(http.get("/api/v1/readings/latest", () => new HttpResponse(null, { status: 500 })));
 
     renderPage();
 
-    // Só UM indicador na tela: o `ConnectionBanner` de `SensorGrid` (que diz
-    // "Reconectando…") — não a notificação de offline baseada em 24h, que
-    // não tem dado pra avaliar.
-    const status = await screen.findByRole("status");
-    expect(within(status).getByText(/reconectando/i)).toBeInTheDocument();
+    // Nenhum indicador dedicado na tela: nem a notificação flutuante (não
+    // tem dado pra avaliar os 24h), nem um banner "reconectando" — só os
+    // cards na variante "sem sinal" (revisão de SensorGrid, 2026-07-24).
+    await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+    expect(screen.getAllByText("Sem sinal")).toHaveLength(5);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("mantém o título visível mesmo se /latest e /series falharem (nunca tela branca — UI-10)", async () => {
@@ -138,7 +142,8 @@ describe("DashboardPage", () => {
     renderPage();
 
     expect(screen.getByRole("heading", { level: 1, name: /estação meteorológica/i })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+    expect(screen.getAllByText("Sem sinal")).toHaveLength(5);
   });
 
   it("referência: usa a fixture sintética latestFixture (não dados reais da estação)", () => {

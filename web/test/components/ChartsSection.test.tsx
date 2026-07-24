@@ -9,6 +9,7 @@ import {
   ChartsSection,
   bucketsToBarSeries,
   bucketsToLineSeries,
+  bucketsToPointLabels,
   buildSearchWithRange,
   buildXLabels,
   getRangeFromSearch,
@@ -112,6 +113,36 @@ describe("funções puras de ChartsSection", () => {
       };
 
       expect(buildXLabels(dayResponse)).toEqual(["01/07", "20/07"]);
+    });
+  });
+
+  describe("bucketsToPointLabels", () => {
+    it("um rótulo POR bucket (não só os extremos, diferente de buildXLabels)", () => {
+      expect(bucketsToPointLabels(seriesFixture, "avg")).toEqual(["13:00", "14:00"]);
+    });
+
+    it("alinhado com bucketsToLineSeries: buckets com avg=null são pulados dos dois arrays juntos", () => {
+      const withGap = {
+        ...seriesFixture,
+        buckets: [
+          { t: "2026-07-23T13:00:00.000Z", avg: 24.1, min: 23.6, max: 24.8, sum: null },
+          { t: "2026-07-23T14:00:00.000Z", avg: null, min: null, max: null, sum: null },
+          { t: "2026-07-23T15:00:00.000Z", avg: 24.7, min: 24.0, max: 25.1, sum: null },
+        ],
+      };
+
+      expect(bucketsToPointLabels(withGap, "avg")).toEqual(["13:00", "15:00"]);
+      expect(bucketsToLineSeries(withGap, "Temperatura", "#f97316")).toEqual([
+        { label: "Temperatura", color: "#f97316", points: [24.1, 24.7] },
+      ]);
+    });
+
+    it("field='sum' (chuva): usa o mesmo campo de bucketsToBarSeries", () => {
+      expect(bucketsToPointLabels(rainSeriesFixture, "sum")).toEqual(["13:00", "14:00"]);
+    });
+
+    it("response undefined retorna []", () => {
+      expect(bucketsToPointLabels(undefined, "avg")).toEqual([]);
     });
   });
 });

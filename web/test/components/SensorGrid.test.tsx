@@ -130,14 +130,18 @@ describe("SensorGrid", () => {
     expect(screen.getByText("24.7")).toBeInTheDocument();
   });
 
-  it("T6.4/UI-10: falha já na primeira busca (sem dado em cache) mostra o banner, sem quebrar nem inventar cards", async () => {
+  it("T6.4/UI-10 (revisado 2026-07-24): falha já na primeira busca (sem dado em cache) mostra os 5 cards em 'sem sinal' — não um banner/card de erro dedicado", async () => {
     server.use(http.get("/api/v1/readings/latest", () => new HttpResponse(null, { status: 500 })));
 
     renderGrid();
 
-    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
-    expect(screen.getByText(/reconectando/i)).toBeInTheDocument();
-    expect(screen.queryAllByTestId("statcard")).toHaveLength(0);
+    await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+    expect(screen.getAllByText("Sem sinal")).toHaveLength(5);
+    // A única comunicação de "estação offline" é a notificação flutuante de
+    // DashboardPage (fora do escopo de SensorGrid) — nada de role="status"
+    // nem "reconectando" aqui.
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/reconectando/i)).not.toBeInTheDocument();
     expect(screen.queryAllByTestId("statcard-skeleton")).toHaveLength(0);
   });
 });

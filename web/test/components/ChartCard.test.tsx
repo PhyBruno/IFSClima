@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ChartCard } from "../../src/components/ChartCard";
 
 describe("ChartCard", () => {
@@ -203,6 +203,160 @@ describe("ChartCard", () => {
 
       expect(screen.getByText("Nenhum dado no período")).toBeInTheDocument();
       expect(screen.queryByTestId("chart-svg")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("headroom vertical (feedback do usuário, 2026-07-24: escala nunca cortada)", () => {
+    it("variant='line': pico e vale não tocam as bordas do SVG (y=0/y=40)", () => {
+      render(
+        <ChartCard
+          title="Chart"
+          variant="line"
+          series={[{ label: "Temperatura", color: "#f97316", points: [10, 50, 10] }]}
+        />,
+      );
+
+      const points = screen
+        .getByTestId("chart-svg")
+        .querySelector("polyline")!
+        .getAttribute("points")!
+        .split(" ")
+        .map((pair) => Number(pair.split(",")[1]));
+
+      points.forEach((y) => {
+        expect(y).toBeGreaterThan(0);
+        expect(y).toBeLessThan(40);
+      });
+    });
+
+    it("variant='bar': a barra mais alta não toca o topo do SVG (y=0)", () => {
+      render(
+        <ChartCard title="Chuva" variant="bar" series={[{ label: "Chuva", color: "#06b6d4", points: [1, 5, 2] }]} />,
+      );
+
+      const rects = screen.getByTestId("chart-svg").querySelectorAll("rect");
+      const tallestY = Math.min(...Array.from(rects).map((r) => Number(r.getAttribute("y"))));
+      expect(tallestY).toBeGreaterThan(0);
+    });
+  });
+
+  describe("pontos e tooltip no hover/foco (feedback do usuário, 2026-07-24)", () => {
+    it("variant='line': desenha um <circle> visível por ponto de dado", () => {
+      render(
+        <ChartCard
+          title="Chart"
+          variant="line"
+          series={[{ label: "Temperatura", color: "#f97316", points: [20, 22, 21, 24] }]}
+        />,
+      );
+
+      const svg = screen.getByTestId("chart-svg");
+      // 4 pontos: 4 círculos visíveis + 4 alvos de hover/foco (maiores, invisíveis).
+      expect(svg.querySelectorAll("circle")).toHaveLength(8);
+    });
+
+    it("variant='line': hover num ponto mostra tooltip com o rótulo de tempo e o valor+unidade", () => {
+      render(
+        <ChartCard
+          title="Temperatura"
+          variant="line"
+          unit="°C"
+          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
+          pointLabels={["14:00", "15:00"]}
+        />,
+      );
+
+      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+
+      const hitTargets = screen.getAllByTestId("chart-point-hit");
+      fireEvent.mouseEnter(hitTargets[1]!);
+
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
+
+      fireEvent.mouseLeave(hitTargets[1]!);
+      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+    });
+
+    it("variant='line': foco via teclado (não só mouse) também mostra o tooltip", () => {
+      render(
+        <ChartCard
+          title="Temperatura"
+          variant="line"
+          unit="°C"
+          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
+          pointLabels={["14:00", "15:00"]}
+        />,
+      );
+
+      const hitTargets = screen.getAllByTestId("chart-point-hit");
+      fireEvent.focus(hitTargets[0]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("14:00 — 20°C");
+
+      fireEvent.blur(hitTargets[0]!);
+      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+    });
+
+    it("variant='bar': hover numa barra mostra tooltip com o valor+unidade", () => {
+      render(
+        <ChartCard
+          title="Chuva"
+          variant="bar"
+          unit="mm"
+          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 2.4] }]}
+          pointLabels={["14:00", "15:00"]}
+        />,
+      );
+
+      const bars = screen.getAllByTestId("chart-bar-hit");
+      fireEvent.mouseEnter(bars[1]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 2.4mm");
+    });
+
+    it("sem pointLabels, o tooltip mostra só o valor formatado", () => {
+      render(
+        <ChartCard
+          title="Chart"
+          variant="line"
+          unit="%"
+          series={[{ label: "Umidade", color: "#0ea5e9", points: [60, 61] }]}
+        />,
+      );
+
+      fireEvent.mouseEnter(screen.getAllByTestId("chart-point-hit")[0]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("60%");
+    });
+  });
+
+  describe("escala lateral / eixo Y (feedback do usuário, 2026-07-24)", () => {
+    it("variant='line': mostra o valor máximo (topo) e mínimo (base) da série, com unidade", () => {
+      render(
+        <ChartCard
+          title="Temperatura"
+          variant="line"
+          unit="°C"
+          series={[{ label: "Temperatura", color: "#f97316", points: [18, 24.6, 20] }]}
+        />,
+      );
+
+      const axis = screen.getByTestId("chart-axis");
+      expect(axis).toHaveTextContent("24.6°C");
+      expect(axis).toHaveTextContent("18°C");
+    });
+
+    it("variant='bar': a base do eixo é sempre 0, não o mínimo da série", () => {
+      render(
+        <ChartCard title="Chuva" variant="bar" unit="mm" series={[{ label: "Chuva", color: "#06b6d4", points: [1, 5] }]} />,
+      );
+
+      const axis = screen.getByTestId("chart-axis");
+      expect(axis).toHaveTextContent("5mm");
+      expect(axis).toHaveTextContent("0mm");
+    });
+
+    it("estado vazio não renderiza o eixo lateral", () => {
+      render(<ChartCard title="Chuva" variant="bar" series={[]} />);
+
+      expect(screen.queryByTestId("chart-axis")).not.toBeInTheDocument();
     });
   });
 

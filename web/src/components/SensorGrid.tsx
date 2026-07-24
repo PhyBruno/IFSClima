@@ -44,8 +44,21 @@ import { formatAge } from "../utils/formatAge";
  *   anterior em cache (mesma `queryKey`) e só marca `isError=true` — o
  *   `ConnectionBanner` (F6 T6.4) aparece acima dos cards SEM escondê-los
  *   (nunca tela branca). Se a PRIMEIRA busca falhar (sem `data` nenhum em
- *   cache), não há o que mostrar nos cards — só o banner, sem inventar
- *   valores.
+ *   cache — ver revisão abaixo), não há o que mostrar de real nos cards, mas
+ *   também não é um "card" de erro dedicado.
+ *
+ * - **Revisão (feedback do usuário, 2026-07-24): sem "card" de estação
+ *   offline aqui.** A primeira versão desta branch (`!data`) retornava só
+ *   `<ConnectionBanner show />` sozinho ocupando o espaço todo — na prática
+ *   virou um "card" genérico de erro, mais chamativo que o padrão já usado
+ *   em QUALQUER sensor individual sem sinal (§DS-04 acima). Trocado pelos
+ *   MESMOS 5 `StatCard` em `value={null}` (variante "sem sinal" que já
+ *   existe e já é testada) — mesma malha visual do resto do produto, sem
+ *   inventar um segundo padrão de "erro". A ÚNICA comunicação de "estação
+ *   offline" do produto é a notificação flutuante de `DashboardPage`
+ *   (baseada em `age_seconds`, não em `isError` de uma busca isolada) — essa
+ *   branch não tem esse dado (fetch falhou, `data` é `undefined`), então não
+ *   tenta mostrar nada a mais além dos cards "sem sinal".
  *
  * - **Ícones**: o inventário real de ícones por sensor não foi extraído em
  *   T5.1/T5.1b (mesma decisão já documentada em `DemoGallery.tsx`, T5.4) —
@@ -63,6 +76,10 @@ import { formatAge } from "../utils/formatAge";
  *   ver `ChartsSection.tsx`), não o grid específico de StatCards, para o
  *   qual §5.9 já documenta por render real 2/3 colunas — preferir o valor
  *   extraído do design real ao resumo textual genérico do design.md.
+ *   `xl:grid-cols-5` (feedback do usuário, 2026-07-24): em telas bem largas
+ *   (desktop grande, com a `Sidebar` de T6.5 ocupando 224px fixos à
+ *   esquerda), 3 colunas deixavam espaço vazio óbvio à direita — os 5
+ *   sensores cabem numa única linha a partir desse breakpoint.
  */
 
 const PLACEHOLDER_ICON: ReactNode = (
@@ -110,7 +127,7 @@ export function SensorGrid() {
     return (
       <div className="flex flex-col gap-2">
         <Skeleton className="h-3 w-32" />
-        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4">
+        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
           {SENSORS.map(({ field }) => (
             <StatCardSkeleton key={field} />
           ))}
@@ -121,8 +138,16 @@ export function SensorGrid() {
 
   if (!data) {
     // Falha já na primeira busca, sem nenhum dado em cache ainda — nunca
-    // tela branca (UI-10): só o banner, sem cards (não há valor pra mostrar).
-    return <ConnectionBanner show />;
+    // tela branca (UI-10): os mesmos 5 cards, cada um na variante "sem
+    // sinal" do StatCard (não um banner/card de erro dedicado, ver revisão
+    // na docstring acima).
+    return (
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
+        {SENSORS.map(({ field, sensor, label, unit }) => (
+          <StatCard key={field} sensor={sensor} label={label} value={null} unit={unit} icon={PLACEHOLDER_ICON} />
+        ))}
+      </div>
+    );
   }
 
   if (data.timestamp === null) {
@@ -138,7 +163,7 @@ export function SensorGrid() {
     <div className="flex flex-col gap-2">
       <ConnectionBanner show={isError} lastUpdatedAt={data.timestamp} />
       <p className="text-xs text-text-muted">atualizado {formatAge(data.age_seconds)}</p>
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4">
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
         {SENSORS.map(({ field, sensor, label, unit }) => (
           <StatCard
             key={field}

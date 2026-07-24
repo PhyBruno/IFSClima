@@ -117,15 +117,27 @@ export function buildXLabels(response: SeriesResponse | undefined): string[] {
   return [formatBucketLabel(buckets[0]!.t, bucket), formatBucketLabel(buckets[buckets.length - 1]!.t, bucket)];
 }
 
-function numericPoints(buckets: SeriesBucket[], field: "avg" | "sum"): number[] {
+/**
+ * Extrai `points`/`labels` de `field` ("avg"/"sum") em paralelo — buckets com
+ * valor `null` são pulados dos DOIS arrays juntos (mantém o índice de
+ * `labels[i]` correspondente a `points[i]`, nunca um dos dois "desalinhando"
+ * do outro por causa de um bucket sem dado).
+ */
+function extractSeriesData(
+  buckets: SeriesBucket[],
+  field: "avg" | "sum",
+  bucketUnit: BucketUnit,
+): { points: number[]; labels: string[] } {
   const points: number[] = [];
+  const labels: string[] = [];
   for (const bucket of buckets) {
     const value = bucket[field];
     if (value !== null) {
       points.push(value);
+      labels.push(formatBucketLabel(bucket.t, bucketUnit));
     }
   }
-  return points;
+  return { points, labels };
 }
 
 /** `avg` de cada bucket → 1 série de linha (UI-05). `response` undefined (query ainda sem dado) ou sem pontos válidos → `[]`, o que já faz o `ChartCard` mostrar `EmptyState` sozinho (UI-06 AC4). */
@@ -138,7 +150,7 @@ export function bucketsToLineSeries(
     return [];
   }
 
-  const points = numericPoints(response.buckets, "avg");
+  const { points } = extractSeriesData(response.buckets, "avg", response.bucket);
   return points.length === 0 ? [] : [{ label, color, points }];
 }
 
@@ -152,8 +164,25 @@ export function bucketsToBarSeries(
     return [];
   }
 
-  const points = numericPoints(response.buckets, "sum");
+  const { points } = extractSeriesData(response.buckets, "sum", response.bucket);
   return points.length === 0 ? [] : [{ label, color, points }];
+}
+
+/**
+ * Um rótulo de tempo POR PONTO (não só os extremos, ver `buildXLabels`) —
+ * usado pelo tooltip de `ChartCard` (feedback do usuário, 2026-07-24: "ao
+ * passar o mouse num ponto, tem que ter tooltip"). `field` precisa ser o
+ * MESMO usado por `bucketsToLineSeries`/`bucketsToBarSeries` pra essa
+ * métrica, senão os rótulos desalinham dos pontos (um bucket com `avg=null`
+ * mas `sum` preenchido, por ex., é pulado em `points` de um jeito e não do
+ * outro — ver `extractSeriesData`).
+ */
+export function bucketsToPointLabels(response: SeriesResponse | undefined, field: "avg" | "sum"): string[] {
+  if (!response) {
+    return [];
+  }
+
+  return extractSeriesData(response.buckets, field, response.bucket).labels;
 }
 
 interface MetricChartConfig {
@@ -162,15 +191,21 @@ interface MetricChartConfig {
   /** Cor CSS literal (`var(--color-sensor-*)`, ver theme.css) — acento por sensor (docs/design-extraction.md §1.4). */
   color: string;
   variant: "line" | "bar";
+  /** Unidade exibida no eixo Y e no tooltip do `ChartCard` (feedback do usuário, 2026-07-24) — mesmos valores usados em `SensorGrid.SENSORS`. */
+  unit: string;
 }
 
-/** Ordem/composição do grid (design.md "Layout"): Temp/Umidade, Pressão/Chuva, UV. */
+/**
+ * Ordem/composição do grid (design.md "Layout"): Temp/Umidade, Pressão/Chuva, UV
+ * — 2 colunas (md:). `xl:grid-cols-3` (feedback do usuário, 2026-07-24)
+ * reflui pra 3+2 em telas bem largas, sem espaço vazio óbvio ao lado.
+ */
 const METRIC_CHARTS: MetricChartConfig[] = [
-  { metric: "temperature_c", title: "Temperatura", color: "var(--color-sensor-temperature)", variant: "line" },
-  { metric: "humidity_pct", title: "Umidade", color: "var(--color-sensor-humidity)", variant: "line" },
-  { metric: "pressure_hpa", title: "Pressão", color: "var(--color-sensor-pressure)", variant: "line" },
-  { metric: "rain_mm", title: "Chuva", color: "var(--color-sensor-rain)", variant: "bar" },
-  { metric: "uv_index", title: "Índice UV", color: "var(--color-sensor-uv)", variant: "line" },
+  { metric: "temperature_c", title: "Temperatura", color: "var(--color-sensor-temperature)", variant: "line", unit: "°C" },
+  { metric: "humidity_pct", title: "Umidade", color: "var(--color-sensor-humidity)", variant: "line", unit: "%" },
+  { metric: "pressure_hpa", title: "Pressão", color: "var(--color-sensor-pressure)", variant: "line", unit: "hPa" },
+  { metric: "rain_mm", title: "Chuva", color: "var(--color-sensor-rain)", variant: "bar", unit: "mm" },
+  { metric: "uv_index", title: "Índice UV", color: "var(--color-sensor-uv)", variant: "line", unit: "" },
 ];
 
 /**
@@ -226,7 +261,7 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
     <section className={`flex flex-col gap-4 ${className}`.trim()}>
       <PeriodSelector options={RANGE_OPTIONS} value={range} onChange={handleRangeChange} />
       <ConnectionBanner show={anyStaleError} />
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {METRIC_CHARTS.map((config, index) => {
           // `seriesResults` está na MESMA ordem/tamanho de `METRIC_CHARTS`
           // (garantido pelo `useQueries({ queries: METRIC_CHARTS.map(...) })`
@@ -237,6 +272,7 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
             return <ChartCardSkeleton key={config.metric} title={config.title} />;
           }
 
+          const field = config.variant === "bar" ? "sum" : "avg";
           const series =
             config.variant === "bar"
               ? bucketsToBarSeries(result.data, config.title, config.color)
@@ -249,6 +285,8 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
               variant={config.variant}
               series={series}
               xLabels={buildXLabels(result.data)}
+              pointLabels={bucketsToPointLabels(result.data, field)}
+              unit={config.unit}
             />
           );
         })}
