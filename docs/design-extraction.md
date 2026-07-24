@@ -1,6 +1,8 @@
 # Extração do Design — `Estacao Meteorologica (standalone).html`
 
-> T5.1 (F5 · Design System). Fonte: `Estacao Meteorologica (standalone).html` (raiz do repo).
+> T5.1 + T5.1b (F5 · Design System). Fonte: `Estacao Meteorologica (standalone).html` (raiz do repo).
+> Cobre os **dois temas** (escuro e claro) com o mesmo rigor de extração — ver nota logo abaixo
+> sobre a mudança de escopo que trouxe o tema claro para o v1 (DS-07).
 > Método: o arquivo é uma página **bundled** — o design real vive dentro de
 > `<script type="__bundler/template">` (string JSON com HTML/CSS + placeholders de asset).
 > Em vez de reimplementar a decodificação lendo o texto manualmente, a página foi **renderizada
@@ -37,10 +39,15 @@ sistema":
 Mais uma seção **"Estados do sistema"** com 5 swatches (light-only): date range picker, skeleton
 de carregamento, card de sensor offline, tabela em estado vazio, banner de estação offline.
 
-Conforme `.specs/features/f5-design-system/spec.md` ("Tema claro; claro é v2"), **este documento
-foca no tema escuro** (dark), que é o único em escopo do v1. As variantes light foram inspecionadas
-apenas para contexto (ex.: confirmar as cores de fundo por sensor, `bg` no script de lógica) e
-estão citadas onde relevante.
+> **Atualização (T5.1b):** a primeira passada deste documento (T5.1) tratava o tema claro como
+> fora de escopo — a spec original listava "Tema claro; claro é v2" e o light só havia sido
+> inspecionado "de relance" (cores de fundo por sensor, banner de erro, skeleton). Em
+> 2026-07-23 o usuário pediu para incluir os dois temas já no v1 (toggle claro/escuro, escuro
+> como default — ver DS-07 em `.specs/features/f5-design-system/spec.md` e a decisão D16 em
+> `.specs/project/STATE.md`). T5.1b refez a varredura do tema claro com o **mesmo rigor** usado
+> para o dark (render real + `getComputedStyle`, não inferência) — ver seção 8. As seções 1-7
+> abaixo permanecem como a extração original do tema escuro (não foram re-verificadas nesta
+> passada, mas nenhuma inconsistência com o novo render foi encontrada nos pontos cruzados).
 
 O canvas em si (fundo bege-claro `#eef0f2`, rótulos "Mobile · Dashboard (dark mode)" etc.) é
 **metadado de apresentação do arquivo de design**, não faz parte da UI real do produto — não deve
@@ -227,8 +234,10 @@ tabela) tem box-shadow no tema dark** — são "flat", diferenciados só por `ba
 `border` 1px. Isso é um traço de design relevante: não introduzir sombras em cards ao montar
 os componentes React — a fidelidade pede bordas sutis, não elevação via sombra.
 
-(No tema light, o "Date range picker" swatch usa uma sombra bem mais discreta:
-`rgba(15,23,42,0.04) 0px 1px 2px` — fora de escopo do v1, citado só como referência.)
+(No tema light a história é mais nuançada — ver §8.8 para o levantamento completo por
+componente: cards normais e o date range picker **têm** uma sombra discreta
+`rgba(15,23,42,0.04) 0px 1px 2px`, mas ChartCard/tabela/sidebar/empty-states permanecem flat
+mesmo no light.)
 
 ---
 
@@ -396,3 +405,288 @@ font-family: Inter, sans-serif  (pesos 400/500/600/700 em uso)
 radius: 3,4,7,8,9,10,12,14,16,999px,50%
 shadow.frame: 0 24px 48px rgba(15,23,42,0.3)   (só no container externo, nenhum card interno)
 ```
+
+---
+
+## 8. Tokens — Tema Claro
+
+Extraído em T5.1b com o **mesmo método** da seção 1-7 (render Playwright + `getComputedStyle`),
+não por inferência. Achado estrutural importante que só apareceu ao investigar o light: os **8
+mockups (4 telas × 2 temas) e a galeria "Estados do sistema" vivem todos dentro do mesmo
+container renderizado** — light e dark não são árvores DOM isoladas, são irmãos no mesmo `flex`
+com `flex-wrap`. Isso permitiu comparar lado a lado, no mesmo `page.evaluate`, os valores
+inline de um elemento e do seu equivalente no outro tema, sem risco de pegar o mockup errado.
+
+### 8.1 Superfícies (light)
+
+| Token proposto | Hex | rgb() observado | Onde aparece |
+|---|---|---|---|
+| `surface.page` | `#f7f8f9` | `rgb(247,248,249)` | fundo do container "janela" (dashboard e histórico, desktop e mobile) — equivalente light de `surface.page` dark |
+| `surface.sidebar` / `surface.panel` | `#ffffff` | `rgb(255,255,255)` | sidebar desktop (background) |
+| `surface.card` | `#ffffff` | `rgb(255,255,255)` | StatCard, ChartCard, tabela, card de histórico mobile, botão de dropdown, date range picker |
+| `surface.chip` / `surface.iconBg` | **não existe um chip neutro no light** — o fundo do ícone do StatCard usa diretamente o `bg` claro por sensor (§1.4), ex. `#fff7ed` para temperatura, `#f0f9ff` para umidade etc. | — | fundo do círculo/quadrado de ícone dentro do StatCard |
+| `surface.statusPanel` | `#f7f8f9` | `rgb(247,248,249)` | painel "Online" na sidebar (mesmo tom do `surface.page`, mas com borda própria — ver §8.2) |
+| `surface.tableHeader` | `#fafbfb` | `rgb(250,251,251)` | fundo do cabeçalho da tabela (Histórico desktop); mesmo tom usado nos inputs de data do date range picker |
+
+> **Achado notável:** ao contrário do dark (onde `surface.page` < `surface.sidebar` <
+> `surface.card` < `surface.chip`, cada um um degrau mais claro que o anterior), no light
+> `surface.sidebar` e `surface.card` são **o mesmo branco puro** (`#ffffff`) — o que os diferencia
+> do `surface.page` (`#f7f8f9`, ligeiramente acinzentado) é só a borda 1px, não um degrau de
+> fundo. E não há um "chip neutro" equivalente ao `#1c2129` do dark: cada chip de ícone no light
+> já nasce colorido com o tom pastel do próprio sensor — não é um token único, é o array de
+> `bg` por sensor da §1.4 (confirmado idêntico entre uso no StatCard e na definição em
+> `data-dc-script`, reaproveitado aqui em vez de duplicado).
+
+### 8.2 Bordas (light)
+
+| Token proposto | Hex | rgb() | Uso |
+|---|---|---|---|
+| `border.default` | `#e6e8eb` | `rgb(230,232,235)` | borda de StatCard, ChartCard, tabela (container), sidebar (border-right), botões/pills inativos, dropdown, date range picker, trilho do toggle "off" (mesma cor, ver §8.7) |
+| `border.frame` | `#e2e4e7` | `rgb(226,228,231)` | borda do container "janela" desktop — tom próprio, ligeiramente mais escuro que `border.default`, só nesse contexto (não observado em dark: lá o frame usa a mesma `border.default`) |
+| `border.subtle` | `#f0f1f2` | `rgb(240,241,242)` | divisor abaixo do brand na sidebar; divisor entre linhas da tabela (Histórico desktop); divisor acima do rodapé do date range picker |
+| `border.dashed` | `#d8dade` | `rgb(216,218,222)` | borda tracejada do card "sem dado" (sensor offline) **dentro do grid do dashboard**, mobile e desktop |
+
+> **Inconsistência encontrada (nova, específica do light):** o swatch genérico "Sensor sem
+> dados / offline" da galeria "Estados do sistema" usa `border: 1px dashed rgb(230,232,235)`
+> (`#e6e8eb`, igual a `border.default`) — **diferente** do card de vento real dentro do
+> dashboard mockado, que usa `#d8dade` (mais escuro, mais contraste contra o fundo branco). É o
+> mesmo tipo de discrepância "swatch genérico vs. instância real no mockup" já visto no dark
+> para outros estados; recomendação para T5.2b/T5.3: usar `#d8dade` (o valor visto **em
+> contexto real de produto**, não no swatch avulso da galeria) como `border.dashed` oficial.
+>
+> Padrão inverso ao dark: no dark, `border.dashed` (`#2a313c`) é **mais claro** que
+> `border.default` (`#262c35`) para ganhar contraste contra fundo escuro; no light,
+> `border.dashed` (`#d8dade`) é **mais escuro** que `border.default` (`#e6e8eb`) pelo mesmo
+> motivo — contraste na direção oposta, comportamento coerente entre os dois temas.
+
+### 8.3 Texto (light)
+
+| Token proposto | Hex | rgb() | Uso |
+|---|---|---|---|
+| `text.primary` | `#111827` | `rgb(17,24,39)` | valores grandes, títulos de página/cards, brand, texto de data/hora na tabela |
+| `text.secondary` | `#374151` | `rgb(55,65,81)` | texto do botão "Últimas 24h ▾"/"Personalizado", células de dado da tabela (não a coluna de data/hora), título do empty-state da tabela, botão "Cancelar" do date range picker, paginação (página não-ativa) |
+| `text.tertiary` | `#6b7280` | `rgb(107,114,128)` | labels de sensor no StatCard, item de nav inativo (texto), "Última leitura: HH:MM" no painel de status — **mesmo hex do `text.muted` do dark**, mas usado num papel de hierarquia mais alta aqui |
+| `text.muted` | `#9ca3af` | `rgb(156,163,175)` | unidade ao lado do valor, "Atualizado há...", dias da semana do calendário, item de nav inativo (ícone), texto "Vento"/"Sem sinal" no card offline, seta "‹" desabilitada da paginação — **mesmo hex do `text.tertiary` do dark** |
+| `text.faint` | `#c1c5cb` | `rgb(193,197,203)` | labels de eixo dos mini-gráficos (`07:00`/`14:00`), "Última leitura há 3h" no card offline do dashboard, ícone do card offline do dashboard, seta "→" do date range picker |
+| `text.disabled` | *(não há um 6º tom claramente distinto; ver nota abaixo)* | — | — |
+
+> **Achado notável:** os tokens de texto do light **não são o negativo 1:1** dos do dark — os
+> hexes de `text.tertiary`/`text.muted` do light (`#6b7280`/`#9ca3af`) são **os mesmos hexes**
+> usados no dark (lá como `text.muted`/`text.tertiary`, papéis trocados), só que num tema claro
+> o cinza-médio funciona tanto para "secundário" quanto pertence à mesma família visual; não é
+> coincidência de extração, é reaproveitamento real do design (confirmado em múltiplos
+> elementos, ex. label do sensor sempre `rgb(107,114,128)` nos dois breakpoints).
+>
+> **Inconsistência de tom "faint" encontrada:** o ícone do card offline dentro do dashboard usa
+> stroke `#c1c5cb`, mas o ícone do swatch genérico "Sensor sem dados/offline" da galeria usa
+> stroke `#d1d5db` (`rgb(209,213,219)`) — dois tons de cinza muito próximos porém **diferentes**
+> para o mesmo conceito visual. Mesma classe de inconsistência "swatch vs. instância real"
+> do §8.2; recomendação: preferir `#c1c5cb` (visto na instância real do dashboard) e tratar
+> `#d1d5db` como variação a não replicar.
+>
+> Não foi encontrado um 6º tom de texto claramente correspondente ao `text.disabled` do dark
+> (`#3f4854`) — o texto mais apagado observado no light é o próprio `text.faint` (`#c1c5cb`).
+> Se for necessário um tom ainda mais discreto que `text.faint` em T5.2b, ele terá que ser
+> **inferido** (não há instância renderizada no arquivo que exija um 6º nível no light).
+
+### 8.4 Acentos por sensor (light)
+
+Confirmado por render que os acentos (`stroke`/cor do ícone) **são idênticos entre light e
+dark** — mesmos hexes da tabela em §1.4 (`#f97316`, `#0ea5e9`, `#14b8a6`, `#a855f7`, `#06b6d4`,
+`#10b981`), tanto no ícone do StatCard quanto no cabeçalho colorido da tabela de Histórico
+(desktop) e nas legendas do ChartCard. Nenhum hex de acento muda entre temas.
+
+A coluna "`bg` claro associado" que já existia na tabela de §1.4 foi **confirmada por render**
+(não só inferida do script) — o fundo do chip de ícone do StatCard no light usa exatamente esses
+hexes:
+
+| Sensor | `bg` claro (chip do StatCard) | Confirmado por render? |
+|---|---|---|
+| Temperatura | `#fff7ed` | ✓ (`rgb(255,247,237)`) |
+| Umidade | `#f0f9ff` | ✓ (`rgb(240,249,255)`) |
+| Pressão | `#f0fdfa` | ✓ (`rgb(240,253,250)`) |
+| Índice UV | `#faf5ff` | ✓ (`rgb(250,245,255)`) |
+| Chuva | `#ecfeff` | ✓ (`rgb(236,254,255)`) |
+| Vento | `#ecfdf5` | ✓ (`rgb(236,253,245)`, visto no `bg` do `data-dc-script` — no mockup em si o sensor está sempre offline, então o chip de ícone específico do vento nunca é pintado com essa cor num StatCard real, só citado no script-fonte) |
+
+Nenhuma duplicação necessária de §1.4 — a tabela lá já está correta; isto só confirma por render.
+
+### 8.5 Cores de estado / feedback (light)
+
+| Token | Hex | rgb() | Uso |
+|---|---|---|---|
+| `status.positive` (delta ▲) | `#16a34a` | `rgb(22,163,74)` | seta de alta em card — **mesmo hex do dark**, confirmado (lógica de delta não é por tema, é a mesma do script embutido) |
+| `status.negative` (delta ▼) | `#dc2626` | `rgb(220,38,38)` | seta de baixa — mesmo hex do dark |
+| `status.neutral` (delta —) | `#9ca3af` | `rgb(156,163,175)` | delta "estável" — mesmo hex do dark |
+| `status.online.dot` | `#22c55e` | `rgb(34,197,94)` | dot de status "Online"/"Estação online" — **tom diferente** do texto (ver linha abaixo); no light o dot ganha um halo sutil `box-shadow: rgba(34,197,94,0.18) 0 0 0 3px` no header mobile (não existe no dark) |
+| `status.online.text` | `#16a34a` | `rgb(22,163,74)` | texto "Online"/"Estação online" — **diferente do dark**, que usa `#4ade80` (verde mais claro, pensado para contraste em fundo escuro); no light o texto usa o verde mais saturado/escuro `#16a34a` para contraste em fundo branco |
+| `brand.primary` | `#16a34a` | `rgb(22,163,74)` | ícone do app na sidebar, pill de período ativo, botão "Exportar"/"Aplicar", dia de início/fim do calendário, trilho do toggle "on" — mesmo hex do dark |
+| `nav.active.bg` (light) | `#ecfdf5` | `rgb(236,253,245)` | fundo do item de nav ativo na sidebar desktop — **wash sólido**, não um `rgba()` translúcido como o dark (`rgba(22,163,74,0.16)`); coincide com o `bg` do sensor Vento e com o `bg` do dia "em intervalo" do calendário (mesmo hex reaproveitado em 3 contextos diferentes) |
+| `nav.active.text` | `#16a34a` | `rgb(22,163,74)` | texto/ícone do item de nav ativo na sidebar |
+
+**Achado importante — a inconsistência da bottom-nav mobile (§1.5) é exclusiva do dark:** no
+mockup **light**, o item ativo da bottom-nav mobile ("Dashboard"/"Histórico" conforme a tela)
+usa `color: rgb(22,163,74)` — **verde**, igual à sidebar desktop. Só no mockup **dark** o item
+ativo muda para azul `#3b82f6`. Ou seja, a inconsistência relatada em T5.1 não é "mobile usa
+azul, desktop usa verde" — é **"dark mobile usa azul, todo o resto (incluindo light mobile) usa
+verde"**. Isso reforça ainda mais a recomendação já registrada em §1.5: padronizar em verde
+(`brand.primary`) e tratar o azul como um desvio pontual do mockup dark, não um padrão
+intencional de breakpoint.
+
+### 8.6 Estados do sistema — re-confirmados por render (galeria "Estados do sistema", light-only)
+
+Todos os 5 swatches já citados em §1.6/§5.7 foram re-renderizados e lidos via
+`getComputedStyle` nesta passada — os hexes abaixo **confirmam exatamente** os valores que já
+estavam no documento (nenhuma correção necessária), agora com a mesma rigor de T5.1:
+
+| Estado | Token | Hex | Confirmado |
+|---|---|---|---|
+| Banner de erro | `danger.bg` | `#fef2f2` | ✓ `rgb(254,242,242)` |
+| Banner de erro | `danger.border` | `#fecaca` | ✓ `rgb(254,202,202)` |
+| Banner de erro | `danger.icon`/`danger.accent` | `#dc2626` | ✓ |
+| Banner de erro | `danger.title` | `#991b1b` | ✓ `rgb(153,27,27)` |
+| Banner de erro | `danger.body` | `#b91c1c` | ✓ `rgb(185,28,28)` |
+| Skeleton | `skeleton.block` | `#eef0f2` | ✓ `rgb(238,240,242)` (blocos de ícone/label/valor) |
+| Skeleton | `skeleton.blockAlt` | `#f2f3f4` | ✓ `rgb(242,243,244)` (bloco maior, "sparkline") — tom quase idêntico ao anterior, provavelmente não intencional, mas confirmado como valor real usado |
+| Tabela vazia | ícone | `#d1d5db` | ✓ `rgb(209,213,219)` |
+| Tabela vazia | título ("Nenhum dado no período") | `#374151` | ✓ `rgb(55,65,81)` — mesmo tom de `text.secondary` |
+| Tabela vazia | subtítulo | `#9ca3af` | ✓ — mesmo tom de `text.muted` |
+| Sensor offline (swatch genérico) | fundo | `#ffffff` | ✓ |
+| Sensor offline (swatch genérico) | borda tracejada | `#e6e8eb` | ✓ — ver inconsistência já anotada em §8.2 |
+| Date range picker | fundo do card | `#ffffff` | ✓, com sombra `rgba(15,23,42,0.04) 0 1px 2px` (ver §8.8) |
+| Date range picker | dia "hoje"/borda do intervalo | `#16a34a` fundo, texto branco | ✓ |
+| Date range picker | dia "dentro do intervalo" | `#ecfdf5` fundo, texto `#111827` | ✓ |
+| Date range picker | inputs de data | fundo `#fafbfb`, borda `#e6e8eb`, texto `#111827` | ✓ |
+
+Confirmado também no arquivo: **nenhum destes 5 estados tem uma variante dark renderizada**
+(só existe uma ocorrência da seção "Estados do sistema" na página inteira, sempre no tema
+claro) — os equivalentes dark continuam a ser **inferência** para T5.2b/T5.3, exatamente como
+já registrado em §1.6 para o dark original.
+
+Como confirmação extra: o script-fonte (`data-dc-script`) já prevê o tema escuro para o
+calendário do date range picker via `buildMonth(..., theme)`:
+```js
+bg = theme === 'dark' ? 'rgba(22,163,74,0.18)' : '#ecfdf5';
+color = theme === 'dark' ? '#f3f4f6' : '#111827';
+// fora do intervalo: color = isToday ? '#16a34a' : (theme === 'dark' ? '#d1d5db' : '#111827');
+```
+Ou seja, o calendário dark (`calendarDark` no script) existe **na lógica**, mas nunca é
+efetivamente desenhado em nenhum swatch do arquivo — é inferência garantida pelo próprio autor
+do mock, não uma suposição nossa.
+
+### 8.7 Toggle "Modo escuro" — os dois estados confirmados por render
+
+Como o mockup light representa o app com o modo escuro **desligado** e o mockup dark representa
+o modo escuro **ligado**, os dois estados do switch existem lado a lado no mesmo arquivo — não
+foi preciso inferir nada aqui:
+
+| Estado | Trilho (track) | Knob | Posição do knob | Sombra do knob |
+|---|---|---|---|---|
+| **Off** (visto no light) | `#e6e8eb` (`rgb(230,232,235)`, igual a `border.default` light) | `#ffffff` | `left: 2px` | `rgba(0,0,0,0.15) 0px 1px 2px` |
+| **On** (visto no dark) | `#16a34a` (`brand.primary`) | `#ffffff` | `right: 2px` | `rgba(0,0,0,0.3) 0px 1px 2px` |
+
+Dimensões (iguais nos dois estados): trilho `34×19px`, `border-radius: 999px`; knob
+`15×15px`, `border-radius: 50%`. A transição entre estados não foi observada (é um mockup
+estático, sem estado `:hover`/animação capturável), mas a troca de `left`/`right` sugere que a
+implementação real deve animar via `transform`/`inset` no CSS.
+
+### 8.8 Shadow (light) — levantamento completo por componente
+
+Ao contrário do que a passada T5.1 sugeriu ("só o date range picker tem sombra no light"), a
+varredura completa mostra que **vários componentes têm uma sombra sutil no light**, mas não
+todos — o padrão real, confirmado por render em `surface.card` mobile/desktop e na galeria:
+
+| Componente | box-shadow | Tem sombra? |
+|---|---|---|
+| Container externo ("janela", desktop) | `rgba(15,23,42,0.14) 0px 24px 48px` | sim |
+| Container externo ("janela", mobile) | `rgba(15,23,42,0.18) 0px 24px 48px` | sim — **alpha diferente do desktop** (0.18 vs 0.14); no dark os dois breakpoints usam o mesmo 0.3 — o light tem essa variação extra entre breakpoints que o dark não tem |
+| StatCard (normal, com dado) | `rgba(15,23,42,0.04) 0px 1px 2px` | **sim** — mobile e desktop |
+| StatCard (offline/dashed, "Vento") | nenhuma | não |
+| ChartCard | nenhuma | não |
+| Tabela (container) | nenhuma | não |
+| Sidebar / painel de status | nenhuma | não |
+| Date range picker (card) | `rgba(15,23,42,0.04) 0px 1px 2px` | sim — mesmo valor do StatCard |
+| Skeleton / tabela vazia / banner de erro / sensor offline (swatches da galeria) | nenhuma | não |
+| Knob do toggle | `rgba(0,0,0,0.15)` off / `rgba(0,0,0,0.3)` on, `0px 1px 2px` | sim (ambos os estados) |
+| Dot "Online" (header mobile) | `rgba(34,197,94,0.18) 0px 0px 0px 3px` (halo) | sim — **só no light**, não existe no dark |
+
+Conclusão para T5.2b: cards "flat" **não é universal no light** como é no dark — StatCard e o
+date range picker usam uma elevação muito discreta (`0.04` alpha, `1px 2px`, quase
+imperceptível) que não existe em nenhum card no dark. Recomenda-se reproduzir essa sombra só
+nesses dois componentes no tema light e manter tudo mais flat, para não sobre-elevar a UI.
+
+### 8.9 Resumo rápido para T5.2b (Tailwind theme — tema claro)
+
+```
+surface.page           #f7f8f9
+surface.sidebar        #ffffff
+surface.card           #ffffff
+surface.statusPanel    #f7f8f9
+surface.tableHeader    #fafbfb
+surface.chip           (sem token único — usar bg por sensor, ver sensor.*.bgLight)
+
+border.default         #e6e8eb
+border.frame           #e2e4e7   (só no container externo desktop)
+border.subtle          #f0f1f2
+border.dashed          #d8dade
+
+text.primary           #111827
+text.secondary         #374151
+text.tertiary          #6b7280
+text.muted             #9ca3af
+text.faint             #c1c5cb
+text.disabled          (não observado — inferir se necessário)
+
+brand.primary          #16a34a          (igual ao dark)
+status.positive        #16a34a          (igual ao dark)
+status.negative        #dc2626          (igual ao dark)
+status.neutral         #9ca3af          (igual ao dark)
+status.online.dot      #22c55e
+status.online.text     #16a34a          (dark usa #4ade80 — tom diferente)
+nav.active.bg           #ecfdf5         (dark usa rgba(22,163,74,0.16) — wash sólido em vez de translúcido)
+nav.active.text         #16a34a
+
+sensor.temperature      #f97316   (igual ao dark)   bgLight #fff7ed
+sensor.humidity         #0ea5e9   (igual ao dark)   bgLight #f0f9ff
+sensor.pressure         #14b8a6   (igual ao dark)   bgLight #f0fdfa
+sensor.uv               #a855f7   (igual ao dark)   bgLight #faf5ff
+sensor.rain             #06b6d4   (igual ao dark)   bgLight #ecfeff
+sensor.wind             #10b981   (igual ao dark)   bgLight #ecfdf5
+
+danger.bg               #fef2f2
+danger.border           #fecaca
+danger.icon             #dc2626
+danger.title            #991b1b
+danger.body             #b91c1c
+
+toggle.track.off        #e6e8eb
+toggle.track.on         #16a34a   (mesmo em dark)
+toggle.knob             #ffffff   (mesmo em dark)
+toggle.knob.shadow.off  rgba(0,0,0,0.15) 0 1px 2px
+toggle.knob.shadow.on   rgba(0,0,0,0.3) 0 1px 2px
+
+shadow.frame.desktop    rgba(15,23,42,0.14) 0 24px 48px
+shadow.frame.mobile     rgba(15,23,42,0.18) 0 24px 48px   (dark usa 0.3 em ambos os breakpoints)
+shadow.card             rgba(15,23,42,0.04) 0 1px 2px      (StatCard normal + date range picker; nenhum outro card)
+shadow.online.dot       rgba(34,197,94,0.18) 0 0 0 3px     (só light, halo do dot "Online" no header mobile)
+
+font-family, spacing, radius: idênticos ao dark (mesmo template, só cor muda) — ver §2 e §3.
+```
+
+**Inconsistências do próprio arquivo de design encontradas nesta passada (não são erros de
+extração):**
+
+1. Bottom-nav mobile ativa: verde no light, azul (`#3b82f6`) só no dark — ver §8.5 (refina o
+   achado já registrado em §1.5, que sugeria ser uma diferença de breakpoint quando na verdade é
+   uma diferença de tema).
+2. `border.dashed` do card offline "em contexto" (`#d8dade`) diverge do swatch genérico da
+   galeria (`#e6e8eb`) — ver §8.2.
+3. Ícone do card offline "em contexto" (`#c1c5cb`) diverge do ícone do swatch genérico da
+   galeria (`#d1d5db`) — ver §8.3.
+4. Sombra do frame externo tem alpha diferente entre mobile (0.18) e desktop (0.14) no light,
+   algo que não acontece no dark (0.3 fixo nos dois breakpoints) — ver §8.8.
+
+Recomendação geral para T5.2b/T5.3: nos itens 2 e 3, preferir sempre o valor visto **na
+instância real dentro de um mockup de tela** (dashboard/histórico) em vez do valor do swatch
+avulso da galeria "Estados do sistema", que parece ter sido montado um pouco separado/depois e
+diverge em detalhes finos de cor.
