@@ -1,7 +1,8 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import { readings, stations } from "../db/schema.js";
 import { METRIC_COLUMNS, type Metric } from "../schemas/readings.js";
+import type { Order } from "../schemas/history.js";
 
 /** Linha pronta para persistir — já normalizada pelo `IngestService` (T3.3). */
 export interface NewReadingRow {
@@ -22,6 +23,37 @@ export interface LatestReadingRow {
   pressureHpa: number | null;
   rainMm: number | null;
   uvIndex: number | null;
+}
+
+/**
+ * Linha de leitura "crua" (F8 — histórico/export). Mesmo shape usado por
+ * `findRange`/`streamRange`: sem `stationId` (o repositório já filtra pela
+ * estação, mesmo padrão de `findLatest`) e com `timestamp` como `Date`
+ * (conversão para ISO string é responsabilidade do service/exporter).
+ */
+export interface ReadingRow {
+  timestamp: Date;
+  temperatureC: number | null;
+  humidityPct: number | null;
+  pressureHpa: number | null;
+  rainMm: number | null;
+  uvIndex: number | null;
+}
+
+/** Parâmetros de `findRange` (T8.2 — HIST-01, HIST-02). */
+export interface FindRangeParams {
+  stationId: string;
+  from: Date;
+  to: Date;
+  page: number;
+  pageSize: number;
+  order: Order;
+}
+
+/** Resultado paginado de `findRange`: linhas da página pedida + total no intervalo inteiro. */
+export interface FindRangeResult {
+  rows: ReadingRow[];
+  total: number;
 }
 
 /** Granularidade do bucket de agregação (design.md — bucketing por range). */
@@ -62,10 +94,32 @@ export interface ReadingRepository {
     since: Date,
     bucketUnit: BucketUnit,
   ): Promise<AggregateBucketRow[]>;
+  /**
+   * Página de leituras num intervalo `[from, to]` (inclusive), ordenada por
+   * `timestamp`, mais o total de leituras no intervalo inteiro (para
+   * calcular quantas páginas existem) — HIST-01, HIST-02. Usa o índice
+   * `readings_station_id_timestamp_idx`.
+   */
+  findRange(params: FindRangeParams): Promise<FindRangeResult>;
+  /**
+   * Fonte assíncrona de TODAS as leituras de um intervalo `[from, to]`
+   * (inclusive), ordenada por `timestamp` — usada pelo export (HIST-06,
+   * HIST-07). Pagina internamente por keyset (`timestamp`, `id`) em chunks
+   * de `STREAM_CHUNK_SIZE`, então nunca materializa o intervalo inteiro em
+   * memória de uma vez (HIST-09), mesmo para intervalos com muitas leituras.
+   */
+  streamRange(stationId: string, from: Date, to: Date, order: Order): AsyncIterable<ReadingRow>;
 }
 
 /** Tamanho do chunk por statement de insert (mitigação de "bulk insert grande" — design.md). */
 export const CHUNK_SIZE = 1000;
+
+/**
+ * Tamanho do chunk paginado internamente por `streamRange` (T8.2 — HIST-09).
+ * Constante própria (em vez de reaproveitar `CHUNK_SIZE`, que é do insert em
+ * lote) para poder evoluir cada teto de forma independente.
+ */
+export const STREAM_CHUNK_SIZE = 1000;
 
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -171,5 +225,108 @@ export class DrizzleReadingRepository implements ReadingRepository {
       max: row.max === null ? null : Number(row.max),
       sum: row.sum === null ? null : Number(row.sum),
     }));
+  }
+
+  async findRange(params: FindRangeParams): Promise<FindRangeResult> {
+    const { stationId, from, to, page, pageSize, order } = params;
+    const whereClause = and(
+      eq(readings.stationId, stationId),
+      gte(readings.timestamp, from),
+      lte(readings.timestamp, to),
+    );
+    const orderBy = order === "asc" ? asc(readings.timestamp) : desc(readings.timestamp);
+
+    const [rows, countRows] = await Promise.all([
+      this.db
+        .select({
+          timestamp: readings.timestamp,
+          temperatureC: readings.temperatureC,
+          humidityPct: readings.humidityPct,
+          pressureHpa: readings.pressureHpa,
+          rainMm: readings.rainMm,
+          uvIndex: readings.uvIndex,
+        })
+        .from(readings)
+        .where(whereClause)
+        .orderBy(orderBy, order === "asc" ? asc(readings.id) : desc(readings.id))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize),
+      this.db.select({ count: sql<number>`count(*)` }).from(readings).where(whereClause),
+    ]);
+
+    return { rows, total: Number(countRows[0]?.count ?? 0) };
+  }
+
+  async *streamRange(
+    stationId: string,
+    from: Date,
+    to: Date,
+    order: Order,
+  ): AsyncGenerator<ReadingRow> {
+    const isDesc = order === "desc";
+    let cursor: { timestamp: Date; id: number } | undefined;
+
+    for (;;) {
+      // Keyset pagination por (timestamp, id) — evita OFFSET grande em
+      // intervalos com muitas leituras (HIST-09, design.md). `id` desempata
+      // leituras com `timestamp` idêntico (não deveria ocorrer na mesma
+      // estação por causa da UNIQUE, mas mantém a paginação total-order-safe
+      // de qualquer forma).
+      const cursorCondition = cursor
+        ? isDesc
+          ? sql`(${readings.timestamp}, ${readings.id}) < (${cursor.timestamp}, ${cursor.id})`
+          : sql`(${readings.timestamp}, ${readings.id}) > (${cursor.timestamp}, ${cursor.id})`
+        : undefined;
+
+      const whereClause = and(
+        eq(readings.stationId, stationId),
+        gte(readings.timestamp, from),
+        lte(readings.timestamp, to),
+        cursorCondition,
+      );
+
+      const rows = await this.db
+        .select({
+          id: readings.id,
+          timestamp: readings.timestamp,
+          temperatureC: readings.temperatureC,
+          humidityPct: readings.humidityPct,
+          pressureHpa: readings.pressureHpa,
+          rainMm: readings.rainMm,
+          uvIndex: readings.uvIndex,
+        })
+        .from(readings)
+        .where(whereClause)
+        .orderBy(
+          isDesc ? desc(readings.timestamp) : asc(readings.timestamp),
+          isDesc ? desc(readings.id) : asc(readings.id),
+        )
+        .limit(STREAM_CHUNK_SIZE);
+
+      if (rows.length === 0) {
+        return;
+      }
+
+      for (const row of rows) {
+        yield {
+          timestamp: row.timestamp,
+          temperatureC: row.temperatureC,
+          humidityPct: row.humidityPct,
+          pressureHpa: row.pressureHpa,
+          rainMm: row.rainMm,
+          uvIndex: row.uvIndex,
+        };
+      }
+
+      const last = rows[rows.length - 1];
+      if (last === undefined) {
+        return;
+      }
+      cursor = { timestamp: last.timestamp, id: last.id };
+
+      if (rows.length < STREAM_CHUNK_SIZE) {
+        return;
+      }
+    }
   }
 }

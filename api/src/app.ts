@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { parseEnv } from "./config/env.js";
 import { getDb } from "./db/client.js";
 import { healthRoute } from "./routes/health.js";
+import { historyRoute } from "./routes/history.js";
 import { ingestRoute } from "./routes/ingest.js";
 import { readingsRoute } from "./routes/readings.js";
 import {
@@ -9,6 +10,7 @@ import {
   type ReadingRepository,
 } from "./repositories/reading-repository.js";
 import { MAX_BATCH as SCHEMA_MAX_BATCH } from "./schemas/ingest.js";
+import { createHistoryService, type HistoryService } from "./services/history-service.js";
 import { createIngestService } from "./services/ingest-service.js";
 import { createReadingsService } from "./services/readings-service.js";
 
@@ -22,6 +24,8 @@ export interface BuildAppOptions {
   ingestApiKey?: string;
   /** F3: teto de itens por lote para a resposta 413 (ING-08). Default: env `MAX_BATCH`, nunca acima do teto do schema Zod. */
   maxBatch?: number;
+  /** F8: injeção de dependência do serviço de histórico/export (fake em teste). */
+  historyService?: HistoryService;
 }
 
 /**
@@ -42,6 +46,8 @@ function lazyDrizzleReadingRepository(): ReadingRepository {
     findLatest: (stationId) => resolve().findLatest(stationId),
     aggregate: (stationId, metric, since, bucketUnit) =>
       resolve().aggregate(stationId, metric, since, bucketUnit),
+    findRange: (params) => resolve().findRange(params),
+    streamRange: (stationId, from, to, order) => resolve().streamRange(stationId, from, to, order),
   };
 }
 
@@ -63,6 +69,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const readingRepository = options.readingRepository ?? lazyDrizzleReadingRepository();
   const ingestService = createIngestService(readingRepository);
   const readingsService = createReadingsService(readingRepository);
+  const historyService = options.historyService ?? createHistoryService(readingRepository);
 
   const getIngestApiKey =
     options.ingestApiKey !== undefined
@@ -77,6 +84,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   app.register(healthRoute);
   app.register(ingestRoute, { ingestService, getIngestApiKey, getMaxBatch });
   app.register(readingsRoute, { readingsService, stationId: DEFAULT_STATION_ID });
+  app.register(historyRoute, { historyService, stationId: DEFAULT_STATION_ID });
 
   return app;
 }

@@ -5,9 +5,19 @@ import { readings, stations } from "../../src/db/schema.js";
 import {
   CHUNK_SIZE,
   DrizzleReadingRepository,
+  STREAM_CHUNK_SIZE,
   type NewReadingRow,
+  type ReadingRow,
 } from "../../src/repositories/reading-repository.js";
 import { startTestPostgres, type TestPostgres } from "../db/helpers/testPostgres.js";
+
+async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
+  const items: T[] = [];
+  for await (const item of source) {
+    items.push(item);
+  }
+  return items;
+}
 
 function row(overrides: Partial<NewReadingRow> = {}): NewReadingRow {
   return {
@@ -357,6 +367,242 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
           sum: null,
         },
       ]);
+    });
+  });
+
+  describe("findRange (T8.2 — HIST-01, HIST-02)", () => {
+    beforeEach(async () => {
+      await repository.ensureStation("main");
+    });
+
+    it("retorna {rows: [], total: 0} para intervalo vazio", async () => {
+      const result = await repository.findRange({
+        stationId: "main",
+        from: new Date("2026-01-01T00:00:00.000Z"),
+        to: new Date("2026-01-02T00:00:00.000Z"),
+        page: 1,
+        pageSize: 50,
+        order: "desc",
+      });
+
+      expect(result).toEqual({ rows: [], total: 0 });
+    });
+
+    it("pagina corretamente (offset/limit) e retorna o total do intervalo inteiro", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.insertIgnoreConflicts(
+        Array.from({ length: 5 }, (_, index) =>
+          row({ timestamp: new Date(base + index * 60_000), temperatureC: index }),
+        ),
+      );
+
+      const page1 = await repository.findRange({
+        stationId: "main",
+        from: new Date(base),
+        to: new Date(base + 10 * 60_000),
+        page: 1,
+        pageSize: 2,
+        order: "asc",
+      });
+      const page2 = await repository.findRange({
+        stationId: "main",
+        from: new Date(base),
+        to: new Date(base + 10 * 60_000),
+        page: 2,
+        pageSize: 2,
+        order: "asc",
+      });
+      const page3 = await repository.findRange({
+        stationId: "main",
+        from: new Date(base),
+        to: new Date(base + 10 * 60_000),
+        page: 3,
+        pageSize: 2,
+        order: "asc",
+      });
+
+      expect(page1.total).toBe(5);
+      expect(page1.rows.map((r) => r.temperatureC)).toEqual([0, 1]);
+      expect(page2.rows.map((r) => r.temperatureC)).toEqual([2, 3]);
+      expect(page3.rows.map((r) => r.temperatureC)).toEqual([4]);
+    });
+
+    it("order=desc retorna do mais recente para o mais antigo", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.insertIgnoreConflicts([
+        row({ timestamp: new Date(base), temperatureC: 10 }),
+        row({ timestamp: new Date(base + 60_000), temperatureC: 20 }),
+        row({ timestamp: new Date(base + 120_000), temperatureC: 30 }),
+      ]);
+
+      const result = await repository.findRange({
+        stationId: "main",
+        from: new Date(base),
+        to: new Date(base + 120_000),
+        page: 1,
+        pageSize: 50,
+        order: "desc",
+      });
+
+      expect(result.rows.map((r) => r.temperatureC)).toEqual([30, 20, 10]);
+    });
+
+    it("order=asc retorna do mais antigo para o mais recente", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.insertIgnoreConflicts([
+        row({ timestamp: new Date(base), temperatureC: 10 }),
+        row({ timestamp: new Date(base + 60_000), temperatureC: 20 }),
+        row({ timestamp: new Date(base + 120_000), temperatureC: 30 }),
+      ]);
+
+      const result = await repository.findRange({
+        stationId: "main",
+        from: new Date(base),
+        to: new Date(base + 120_000),
+        page: 1,
+        pageSize: 50,
+        order: "asc",
+      });
+
+      expect(result.rows.map((r) => r.temperatureC)).toEqual([10, 20, 30]);
+    });
+
+    it("não mistura leituras de outra estação", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.ensureStation("other");
+      await repository.insertIgnoreConflicts([
+        row({ stationId: "other", timestamp: new Date(base), temperatureC: 99 }),
+        row({ timestamp: new Date(base + 60_000), temperatureC: 20 }),
+      ]);
+
+      const result = await repository.findRange({
+        stationId: "main",
+        from: new Date(base),
+        to: new Date(base + 60_000),
+        page: 1,
+        pageSize: 50,
+        order: "asc",
+      });
+
+      expect(result.total).toBe(1);
+      expect(result.rows.map((r) => r.temperatureC)).toEqual([20]);
+    });
+
+    it("respeita os limites inclusivos de from/to", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.insertIgnoreConflicts([
+        row({ timestamp: new Date(base), temperatureC: 1 }),
+        row({ timestamp: new Date(base + 60_000), temperatureC: 2 }),
+      ]);
+
+      const result = await repository.findRange({
+        stationId: "main",
+        from: new Date(base),
+        to: new Date(base),
+        page: 1,
+        pageSize: 50,
+        order: "asc",
+      });
+
+      expect(result.rows.map((r) => r.temperatureC)).toEqual([1]);
+    });
+  });
+
+  describe("streamRange (T8.2 — HIST-09)", () => {
+    beforeEach(async () => {
+      await repository.ensureStation("main");
+    });
+
+    it("intervalo vazio → nenhuma linha emitida", async () => {
+      const rows = await collect(
+        repository.streamRange(
+          "main",
+          new Date("2026-01-01T00:00:00.000Z"),
+          new Date("2026-01-02T00:00:00.000Z"),
+          "asc",
+        ),
+      );
+
+      expect(rows).toEqual([]);
+    });
+
+    it("emite todas as linhas do intervalo em ordem asc", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.insertIgnoreConflicts([
+        row({ timestamp: new Date(base), temperatureC: 1 }),
+        row({ timestamp: new Date(base + 60_000), temperatureC: 2 }),
+        row({ timestamp: new Date(base + 120_000), temperatureC: 3 }),
+      ]);
+
+      const rows = await collect(
+        repository.streamRange(
+          "main",
+          new Date(base),
+          new Date(base + 120_000),
+          "asc",
+        ),
+      );
+
+      expect(rows.map((r) => r.temperatureC)).toEqual([1, 2, 3]);
+    });
+
+    it("emite todas as linhas do intervalo em ordem desc", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.insertIgnoreConflicts([
+        row({ timestamp: new Date(base), temperatureC: 1 }),
+        row({ timestamp: new Date(base + 60_000), temperatureC: 2 }),
+        row({ timestamp: new Date(base + 120_000), temperatureC: 3 }),
+      ]);
+
+      const rows = await collect(
+        repository.streamRange(
+          "main",
+          new Date(base),
+          new Date(base + 120_000),
+          "desc",
+        ),
+      );
+
+      expect(rows.map((r) => r.temperatureC)).toEqual([3, 2, 1]);
+    });
+
+    it("emite todas as linhas mesmo quando o intervalo tem mais linhas que um chunk (HIST-09)", async () => {
+      const total = STREAM_CHUNK_SIZE * 2 + 250; // força >= 3 chunks internos
+      const base = new Date("2026-01-01T00:00:00.000Z").getTime();
+      await repository.insertIgnoreConflicts(
+        Array.from({ length: total }, (_, index) =>
+          row({ timestamp: new Date(base + index * 1000), temperatureC: index }),
+        ),
+      );
+
+      const rows = await collect(
+        repository.streamRange(
+          "main",
+          new Date(base),
+          new Date(base + (total - 1) * 1000),
+          "asc",
+        ),
+      );
+
+      expect(rows).toHaveLength(total);
+      expect(rows.map((r: ReadingRow) => r.temperatureC)).toEqual(
+        Array.from({ length: total }, (_, index) => index),
+      );
+    }, 30000);
+
+    it("não mistura leituras de outra estação", async () => {
+      const base = new Date("2026-07-23T00:00:00.000Z").getTime();
+      await repository.ensureStation("other");
+      await repository.insertIgnoreConflicts([
+        row({ stationId: "other", timestamp: new Date(base), temperatureC: 99 }),
+        row({ timestamp: new Date(base + 60_000), temperatureC: 20 }),
+      ]);
+
+      const rows = await collect(
+        repository.streamRange("main", new Date(base), new Date(base + 60_000), "asc"),
+      );
+
+      expect(rows.map((r) => r.temperatureC)).toEqual([20]);
     });
   });
 });
