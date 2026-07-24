@@ -298,7 +298,7 @@ describe("ChartCard", () => {
       expect(screen.getByTestId("chart-svg").querySelectorAll("circle")).toHaveLength(4);
     });
 
-    it("variant='line': clique/toque (onClick) alterna o tooltip — mesmo alvo do mouse/teclado (feedback do usuário, 2026-07-24: suporte a touch)", () => {
+    it("variant='line': clique/toque (onClick) mostra o tooltip — mesmo alvo do mouse/teclado (feedback do usuário, 2026-07-24: suporte a touch)", () => {
       render(
         <ChartCard
           title="Temperatura"
@@ -314,12 +314,9 @@ describe("ChartCard", () => {
 
       fireEvent.click(hitTargets[1]!);
       expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
-
-      fireEvent.click(hitTargets[1]!);
-      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
     });
 
-    it("variant='bar': clique/toque (onClick) alterna o tooltip da barra", () => {
+    it("variant='bar': clique/toque (onClick) mostra o tooltip da barra", () => {
       render(
         <ChartCard
           title="Chuva"
@@ -333,9 +330,31 @@ describe("ChartCard", () => {
       const bars = screen.getAllByTestId("chart-bar-hit");
       fireEvent.click(bars[1]!);
       expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 2.4mm");
+    });
 
-      fireEvent.click(bars[1]!);
-      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+    it("BUG CORRIGIDO (feedback do usuário, 2026-07-24: 'não dá pra clicar no gráfico de 30d'): clicar num ponto já em hover NÃO esconde o tooltip", () => {
+      // Reproduz a sequência de um clique de mouse DE VERDADE: o navegador
+      // dispara mouseenter (ativa via hover) ANTES do evento click. A versão
+      // com bug fazia `onClick` alternar (desativava se já ativo), então o
+      // próprio clique cancelava o hover que acabou de ativar o ponto —
+      // clicar "não fazia nada" visualmente. `onClick` agora só ativa
+      // (idempotente se já ativo), nunca desativa.
+      render(
+        <ChartCard
+          title="Temperatura"
+          variant="line"
+          unit="°C"
+          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
+          pointLabels={["14:00", "15:00"]}
+        />,
+      );
+
+      const hitTargets = screen.getAllByTestId("chart-point-hit");
+      fireEvent.mouseEnter(hitTargets[1]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
+
+      fireEvent.click(hitTargets[1]!);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
     });
 
     it("variant='line': hover num ponto mostra tooltip com o rótulo de tempo e o valor+unidade", () => {

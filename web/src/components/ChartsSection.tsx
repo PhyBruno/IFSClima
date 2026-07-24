@@ -243,10 +243,24 @@ export function bucketsToBarSeries(
  * métrica, senão os rótulos desalinham dos pontos (um bucket com `avg=null`
  * mas `sum` preenchido, por ex., é pulado em `points` de um jeito e não do
  * outro — ver `extractSeriesData`).
+ *
+ * **`range="7d"` — dia + hora, não só hora (feedback do usuário,
+ * 2026-07-24)**: o bucket de `7d` é `hour` (mesma razão de `buildXLabels`
+ * acima) — um tooltip só com "14:00" é ambíguo numa janela de 7 dias (QUAL
+ * dos 7 dias?). Só nesse range o rótulo vira `"DD/MM HH:MM"` em vez do
+ * `formatBucketLabel` padrão. `30d` não precisa desse tratamento: o bucket
+ * já é `day`, então `formatBucketLabel` já produz `"DD/MM"` sozinho (um
+ * valor médio diário não tem "hora" própria pra mostrar).
  */
 export function bucketsToPointLabels(response: SeriesResponse | undefined, field: "avg" | "sum"): string[] {
   if (!response) {
     return [];
+  }
+
+  if (response.range === "7d") {
+    return response.buckets
+      .filter((bucket) => bucket[field] !== null)
+      .map((bucket) => `${formatDayMonth(bucket.t)} ${formatTime(bucket.t)}`);
   }
 
   return extractSeriesData(response.buckets, field, response.bucket).labels;

@@ -164,6 +164,22 @@ describe("funções puras de ChartsSection", () => {
       expect(bucketsToPointLabels(rainSeriesFixture, "sum")).toEqual(["13:00", "14:00"]);
     });
 
+    it("range='7d' (feedback do usuário, 2026-07-24): rótulo dia+hora, não só hora (ambíguo numa janela de 7 dias)", () => {
+      const sevenDayResponse = {
+        ...seriesFixture,
+        range: "7d" as const,
+        bucket: "hour" as const,
+        buckets: [
+          { t: "2026-07-18T20:00:00.000Z", avg: 1, min: 1, max: 1, sum: null },
+          { t: "2026-07-19T05:00:00.000Z", avg: null, min: null, max: null, sum: null },
+          { t: "2026-07-20T09:00:00.000Z", avg: 3, min: 3, max: 3, sum: null },
+        ],
+      };
+
+      // Bucket do meio (avg=null) é pulado — mesma regra de alinhamento de sempre.
+      expect(bucketsToPointLabels(sevenDayResponse, "avg")).toEqual(["18/07 20:00", "20/07 09:00"]);
+    });
+
     it("response undefined retorna []", () => {
       expect(bucketsToPointLabels(undefined, "avg")).toEqual([]);
     });

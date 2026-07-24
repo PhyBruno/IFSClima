@@ -96,10 +96,23 @@ import { EmptyState } from "./EmptyState";
  *   `chart-point-hit`/`chart-bar-hit` só reagiam a mouse (`onMouseEnter`/
  *   `onMouseLeave`) e foco por teclado (`onFocus`/`onBlur`) — em touch, nada
  *   disso dispara de forma confiável (não há "hover", e foco por toque é
- *   inconsistente entre navegadores móveis). `onClick` alterna
- *   (`toggleActive`) o mesmo estado `activeKey`/`activeIndex` que o hover já
- *   usa — funciona em mouse (clique) E em toque (tap), sem duplicar lógica
- *   de tooltip/marcador, que já reage a esse mesmo estado.
+ *   inconsistente entre navegadores móveis). `onClick` chama `activate()`
+ *   (o MESMO handler do `onMouseEnter`) — funciona em mouse E em toque, sem
+ *   duplicar lógica de tooltip/marcador.
+ *
+ * - **BUG: `onClick` alternava (toggle), não só ativava — corrigido, feedback
+ *   do usuário, 2026-07-24**: a 1ª versão fazia `onClick` chamar
+ *   `deactivate()` quando `isActive` já era `true`. Isso quebrava clique de
+ *   MOUSE de verdade (reportado pelo usuário como "não dá pra clicar" no
+ *   gráfico de 30d): um clique real sempre dispara `mouseenter` (que já
+ *   ativa via hover) ANTES do evento `click` — o toggle via "já ativo" e
+ *   desativava, cancelando o próprio clique. `onClick` agora só ATIVA
+ *   (nunca desativa): no mouse isso é um no-op idempotente (já estava ativo
+ *   pelo hover, nada muda); no touch, ativa de verdade mesmo se o
+ *   `mouseenter` sintético não tiver disparado. Desativar continua sendo
+ *   responsabilidade só de `onMouseLeave`/`onBlur` (mouse sair da área /
+ *   perder foco), ou implicitamente ao tocar OUTRO ponto (o `activeKey`
+ *   compartilhado muda de valor).
  *
  * - **Gap das barras proporcional ao nº de pontos (feedback do usuário,
  *   2026-07-24)**: `barGap` era um valor FIXO em unidades do viewBox (4),
@@ -342,16 +355,6 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
                 onHover(null);
               }
 
-              // Toque (mobile): sem "hover" de verdade, `onClick` alterna
-              // o mesmo estado que mouse/teclado já usam (ver docstring).
-              function toggleActive() {
-                if (isActive) {
-                  deactivate();
-                } else {
-                  activate();
-                }
-              }
-
               return (
                 <g key={key}>
                   {/* Marcador só no ponto ATIVO (ver docstring, "Marcador só
@@ -380,7 +383,7 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
                     onMouseLeave={deactivate}
                     onFocus={activate}
                     onBlur={deactivate}
-                    onClick={toggleActive}
+                    onClick={activate}
                   />
                 </g>
               );
@@ -442,17 +445,6 @@ function BarChart({ points, color, pointLabels, unit, onHover }: BarChartProps) 
           onHover(null);
         }
 
-        // Toque (mobile): mesma razão do LineChart (ver docstring do
-        // componente, "onClick no alvo de hover/foco") — a barra em si já é
-        // o alvo visível, só falta reagir a tap.
-        function toggleActive() {
-          if (isActive) {
-            deactivate();
-          } else {
-            activate();
-          }
-        }
-
         return (
           <rect
             key={index}
@@ -470,7 +462,7 @@ function BarChart({ points, color, pointLabels, unit, onHover }: BarChartProps) 
             onMouseLeave={deactivate}
             onFocus={activate}
             onBlur={deactivate}
-            onClick={toggleActive}
+            onClick={activate}
           />
         );
       })}
