@@ -114,6 +114,29 @@ describe("funções puras de ChartsSection", () => {
 
       expect(buildXLabels(dayResponse)).toEqual(["01/07", "20/07"]);
     });
+
+    it("range='7d' (feedback do usuário, 2026-07-24): um marcador por dia, não só primeiro/último bucket", () => {
+      // 7d é bucket='hour' na API (RANGE_CONFIG, api/src/services/readings-service.ts)
+      // — 3 dias distintos aqui, 2 buckets/dia, pra provar que dedupa por dia.
+      const sevenDayResponse = {
+        ...seriesFixture,
+        range: "7d" as const,
+        bucket: "hour" as const,
+        buckets: [
+          { t: "2026-07-18T20:00:00.000Z", avg: 1, min: 1, max: 1, sum: null },
+          { t: "2026-07-18T23:00:00.000Z", avg: 2, min: 2, max: 2, sum: null },
+          { t: "2026-07-19T05:00:00.000Z", avg: 3, min: 3, max: 3, sum: null },
+          { t: "2026-07-19T18:00:00.000Z", avg: 4, min: 4, max: 4, sum: null },
+          { t: "2026-07-20T09:00:00.000Z", avg: 5, min: 5, max: 5, sum: null },
+        ],
+      };
+
+      expect(buildXLabels(sevenDayResponse)).toEqual(["18/07", "19/07", "20/07"]);
+    });
+
+    it("range='24h' continua usando só o par primeiro/último, mesmo com muitos buckets do mesmo dia", () => {
+      expect(buildXLabels(seriesFixture)).toEqual(["13:00", "14:00"]);
+    });
   });
 
   describe("bucketsToPointLabels", () => {

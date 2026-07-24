@@ -50,6 +50,28 @@ describe("ChartCard", () => {
       expect(polyline).toHaveAttribute("stroke", "#f97316");
     });
 
+    it("área preenchida (feedback do usuário, 2026-07-24): um <polygon> por série, com fillOpacity baixa na cor da própria série", () => {
+      render(
+        <ChartCard
+          title="Temp & Umid"
+          variant="line"
+          series={[
+            { label: "Temperatura", color: "#f97316", points: [20, 22, 21, 24] },
+            { label: "Umidade", color: "#0ea5e9", points: [60, 58, 62, 61] },
+          ]}
+        />,
+      );
+
+      const polygons = screen.getByTestId("chart-svg").querySelectorAll("polygon");
+      expect(polygons).toHaveLength(2);
+      expect(polygons[0]).toHaveAttribute("fill", "#f97316");
+      expect(polygons[1]).toHaveAttribute("fill", "#0ea5e9");
+      polygons.forEach((polygon) => {
+        expect(Number(polygon.getAttribute("fill-opacity"))).toBeGreaterThan(0);
+        expect(Number(polygon.getAttribute("fill-opacity"))).toBeLessThan(1);
+      });
+    });
+
     it("série com menos de 2 pontos não desenha polyline degenerada para aquela série, mas não quebra as demais", () => {
       render(
         <ChartCard

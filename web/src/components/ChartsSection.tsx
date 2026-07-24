@@ -103,13 +103,64 @@ function formatBucketLabel(t: string, unit: BucketUnit): string {
   return unit === "hour" ? formatTime(t) : formatDayMonth(t);
 }
 
-/** Rótulos de eixo X: só extremos (primeiro/último bucket) — `ChartCard` espalha o array recebido com `justify-between`, não é 1:1 posicional com os pontos (ver uso em `DemoGallery`). */
+/**
+ * Uma label (`formatDayMonth`) por dia LOCAL distinto entre os buckets — o
+ * PRIMEIRO bucket de cada dia representa aquele dia (`Date#getFullYear`/
+ * `getMonth`/`getDate`, fuso do navegador, mesmo princípio de `formatTime.ts`).
+ * Usado só pro range `7d` (feedback do usuário, 2026-07-24, ver `buildXLabels`
+ * abaixo) — não genérico pra qualquer bucket "hour", porque em `24h` isso
+ * degeneraria pra só 1-2 labels (o range inteiro cabe num único dia local, na
+ * prática), sem ganho sobre o par primeiro/último já usado ali.
+ */
+function uniqueDayLabels(buckets: SeriesBucket[]): string[] {
+  const seenDays = new Set<string>();
+  const labels: string[] = [];
+
+  for (const bucket of buckets) {
+    const date = new Date(bucket.t);
+    if (Number.isNaN(date.getTime())) {
+      continue;
+    }
+
+    const dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    if (!seenDays.has(dayKey)) {
+      seenDays.add(dayKey);
+      labels.push(formatDayMonth(bucket.t));
+    }
+  }
+
+  return labels;
+}
+
+/**
+ * Rótulos de eixo X — `ChartCard` espalha o array recebido com
+ * `justify-between` (N labels igualmente espaçadas, não 1:1 posicional com os
+ * pontos, ver uso em `DemoGallery`).
+ *
+ * **Regra geral (24h/30d)**: só os extremos (primeiro/último bucket) — o
+ * range inteiro cabe numa faixa curta o bastante pra dois rótulos bastarem
+ * (24h: só horas; 30d: bucket já é `day`, primeiro/último dia já orienta).
+ *
+ * **`range="7d"` — um marcador POR DIA (feedback do usuário, 2026-07-24)**:
+ * diferente de `24h`/`30d`, o bucket de `7d` é `hour` (`RANGE_CONFIG` em
+ * `api/src/services/readings-service.ts` — 168 buckets horários, não
+ * diários), então o par "primeiro/último" da regra geral mostrava só duas
+ * HORAS (ex. "21:00"/"04:00"), sem nenhuma orientação de QUAL dia da semana
+ * cada ponto do gráfico representa. `uniqueDayLabels` extrai um rótulo
+ * `DD/MM` por dia local distinto presente nos buckets (tipicamente 7-8,
+ * dependendo de onde a janela de 7 dias corta o primeiro/último dia).
+ */
 export function buildXLabels(response: SeriesResponse | undefined): string[] {
   if (!response || response.buckets.length === 0) {
     return [];
   }
 
-  const { buckets, bucket } = response;
+  const { buckets, bucket, range } = response;
+
+  if (range === "7d") {
+    return uniqueDayLabels(buckets);
+  }
+
   if (buckets.length === 1) {
     return [formatBucketLabel(buckets[0]!.t, bucket)];
   }

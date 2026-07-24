@@ -62,6 +62,12 @@ import { EmptyState } from "./EmptyState";
  *   que a linha (`strokeWidth=1`). O alvo de hover/foco (círculo invisível
  *   maior) não muda.
  *
+ * - **Área preenchida sob a curva (feedback do usuário, 2026-07-24)**: cada
+ *   série de linha ganhou um `<polygon>` de preenchimento (opacidade 0.14 na
+ *   cor da série, fechado até a base do SVG) desenhado atrás da `<polyline>`
+ *   — só no `variant="line"`; barras já são preenchidas por natureza, não
+ *   precisam de área extra.
+ *
  * - **Marcador ainda menor (2ª revisão — feedback do usuário, 2026-07-24)**:
  *   o raio de 1.6/2.2 (repouso/ativo) da revisão anterior ainda dominava a
  *   linha de 1.25 de espessura, escondendo o traço que liga os pontos.
@@ -228,9 +234,23 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
           y: scaleYWithHeadroom(value, min, max),
           value,
         }));
+        // Área preenchida sob a curva (feedback do usuário, 2026-07-24): um
+        // <polygon> com os MESMOS pontos da linha, fechado até a base do SVG
+        // (y=VIEWBOX_HEIGHT — o "chão" visual do card, não o mínimo real da
+        // série, mesma convenção de área comum em gráficos de linha) e opacidade
+        // baixa (0.14) na cor da própria série — legível nos dois temas sem
+        // esconder a linha/marcadores desenhados por cima. Renderizado ANTES da
+        // <polyline> (ordem do documento = ordem de pintura em SVG), então fica
+        // atrás dela.
+        const areaPoints = [
+          `${coords[0]!.x},${VIEWBOX_HEIGHT}`,
+          ...coords.map((c) => `${c.x},${c.y}`),
+          `${coords[coords.length - 1]!.x},${VIEWBOX_HEIGHT}`,
+        ].join(" ");
 
         return (
           <g key={s.label}>
+            <polygon points={areaPoints} fill={s.color} fillOpacity={0.14} stroke="none" aria-hidden="true" />
             <polyline
               points={coords.map((c) => `${c.x},${c.y}`).join(" ")}
               fill="none"
