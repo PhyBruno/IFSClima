@@ -1,4 +1,4 @@
-import type { LatestReading, SeriesResponse } from "../../src/api-client";
+import type { HistoryResponse, LatestReading, SeriesResponse } from "../../src/api-client";
 
 /** Fixtures sintéticas (não são dados reais) — espelham o contrato F4 (design.md, exemplo de `latest`). */
 export const latestFixture: LatestReading = {
@@ -51,4 +51,64 @@ export const emptySeriesFixture: SeriesResponse = {
   range: "30d",
   bucket: "day",
   buckets: [],
+};
+
+/**
+ * `GET /api/v1/readings` (F8 T8.6) — duas leituras, uma delas com `rain_mm`
+ * e `uv_index` nulos (HIST-03: célula vira "—" na `ReadingsTable`). `total: 2`
+ * casa com `readings.length` (uma página só cobre tudo).
+ */
+export const historyFixture: HistoryResponse = {
+  from: "2026-07-22T14:30:00.000Z",
+  to: "2026-07-23T14:30:00.000Z",
+  page: 1,
+  page_size: 50,
+  total: 2,
+  readings: [
+    {
+      timestamp: "2026-07-23T14:30:00.000Z",
+      temperature_c: 24.7,
+      humidity_pct: 61.2,
+      pressure_hpa: 1013.4,
+      rain_mm: 0.4,
+      uv_index: 5.3,
+    },
+    {
+      timestamp: "2026-07-23T14:25:00.000Z",
+      temperature_c: 24.5,
+      humidity_pct: 61.5,
+      pressure_hpa: 1013.5,
+      rain_mm: null,
+      uv_index: null,
+    },
+  ],
+};
+
+/** Intervalo sem nenhuma leitura (HIST-04: estado vazio, não erro). */
+export const emptyHistoryFixture: HistoryResponse = {
+  from: "2026-07-22T14:30:00.000Z",
+  to: "2026-07-23T14:30:00.000Z",
+  page: 1,
+  page_size: 50,
+  total: 0,
+  readings: [],
+};
+
+/** Segunda página de um dataset maior (HIST-02: paginação) — `total` além de uma página só. */
+export const historyPage2Fixture: HistoryResponse = {
+  from: "2026-07-01T00:00:00.000Z",
+  to: "2026-07-23T00:00:00.000Z",
+  page: 2,
+  page_size: 1,
+  total: 2,
+  readings: [
+    {
+      timestamp: "2026-07-01T00:00:00.000Z",
+      temperature_c: 20.1,
+      humidity_pct: 70.0,
+      pressure_hpa: 1010.0,
+      rain_mm: 1.2,
+      uv_index: 1.0,
+    },
+  ],
 };

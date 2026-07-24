@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { DemoGallery } from "./components/DemoGallery";
+import { HistoryPage } from "./pages/HistoryPage";
 import { QueryProvider } from "./providers/QueryProvider";
 import "./index.css";
 
@@ -13,7 +14,19 @@ if (!rootElement) {
 
 // Rota única e estática (T5.4): sem router de verdade até F6 ter mais de uma
 // tela real — uma checagem de pathname resolve sem adicionar dependência.
-const RootComponent = window.location.pathname === "/__ui" ? DemoGallery : App;
+// F8 T8.6 estende a mesma checagem para `/historico` (agora uma tela real).
+function resolveRootComponent() {
+  switch (window.location.pathname) {
+    case "/__ui":
+      return DemoGallery;
+    case "/historico":
+      return HistoryPage;
+    default:
+      return App;
+  }
+}
+
+const RootComponent = resolveRootComponent();
 
 createRoot(rootElement).render(
   <StrictMode>
