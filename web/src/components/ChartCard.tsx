@@ -201,6 +201,14 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
       viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
       preserveAspectRatio="none"
       className="h-20 w-full"
+      // overflow visible (feedback do usuário, 2026-07-24): o 1º/último ponto
+      // ficam exatamente em x=0/x=100 (bordas do viewBox) — sem isso, o
+      // <svg> (overflow:hidden por padrão do user-agent) corta AO MEIO o
+      // marcador desses dois pontos, nas duas pontas da linha, em qualquer
+      // período (mais visível com mais pontos, ex. 30d, mas não é exclusivo
+      // dele). O raio do marcador é pequeno o bastante pra "vazar" só uns
+      // poucos px no padding do card, sem esbarrar em outro elemento.
+      style={{ overflow: "visible" }}
       role="group"
       aria-label="Gráfico de linha"
       data-testid="chart-svg"
