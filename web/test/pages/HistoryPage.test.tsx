@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { server } from "../mocks/server";
 import { createQueryClient } from "../../src/providers/QueryProvider";
 import { HistoryPage } from "../../src/pages/HistoryPage";
@@ -116,5 +116,66 @@ describe("HistoryPage", () => {
 
     await waitFor(() => expect(screen.getByText("20.1")).toBeInTheDocument());
     expect(capturedSearch?.get("page")).toBe("2");
+  });
+
+  it("F8 achado 1: requisição que falha (400) mostra um estado de ERRO, não 'Nenhum dado no período'", async () => {
+    server.use(http.get("/api/v1/readings", () => new HttpResponse(null, { status: 400 })));
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: /não foi possível carregar as leituras/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /nenhum dado no período/i }),
+    ).not.toBeInTheDocument();
+    // Sem uma resposta confirmada, não há o que exportar: os botões ficam desabilitados.
+    expect(screen.getByRole("button", { name: /exportar csv/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /exportar xlsx/i })).toBeDisabled();
+  });
+
+  it("F8 achado 1: erro de rede também mostra o estado de ERRO", async () => {
+    server.use(http.get("/api/v1/readings", () => HttpResponse.error()));
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: /não foi possível carregar as leituras/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("F8 achado 2: durante o refetch de um novo intervalo, o export não aponta para o intervalo antigo (fica desabilitado)", async () => {
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+
+    const oldCsvHref = screen.getByRole("link", { name: /exportar csv/i }).getAttribute("href");
+    expect(oldCsvHref).toContain(encodeURIComponent(historyFixture.from));
+
+    const newFrom = "2026-07-16T14:30:00.000Z";
+    server.use(
+      http.get("/api/v1/readings", async () => {
+        await delay(50);
+        return HttpResponse.json({ ...historyFixture, from: newFrom });
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "7 dias" }));
+
+    // Janela de refetch: `data` ainda é o intervalo ANTERIOR (placeholder) —
+    // o link de export não pode continuar apontando pra ele, então some/vira
+    // um botão desabilitado.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /exportar csv/i })).toBeDisabled();
+    });
+    expect(screen.queryByRole("link", { name: /exportar csv/i })).not.toBeInTheDocument();
+
+    // Depois que o refetch completa, volta a exportar — agora com o NOVO intervalo.
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: /exportar csv/i });
+      expect(link.getAttribute("href")).toContain(encodeURIComponent(newFrom));
+    });
+    const newCsvHref = screen.getByRole("link", { name: /exportar csv/i }).getAttribute("href");
+    expect(newCsvHref).not.toBe(oldCsvHref);
   });
 });

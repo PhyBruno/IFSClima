@@ -40,7 +40,7 @@ function formatCell(value: number | null): string {
   return value === null ? "—" : String(value);
 }
 
-const COLUMNS: { key: keyof HistoryReading; header: string }[] = [
+const COLUMNS: { key: Exclude<keyof HistoryReading, "timestamp">; header: string }[] = [
   { key: "temperature_c", header: "Temperatura (°C)" },
   { key: "humidity_pct", header: "Umidade (%)" },
   { key: "pressure_hpa", header: "Pressão (hPa)" },
@@ -95,7 +95,7 @@ export function ReadingsTable({
                 </td>
                 {COLUMNS.map((column) => (
                   <td key={column.key} className="whitespace-nowrap px-4 py-3 text-text-secondary">
-                    {formatCell(reading[column.key] as number | null)}
+                    {formatCell(reading[column.key])}
                   </td>
                 ))}
               </tr>
