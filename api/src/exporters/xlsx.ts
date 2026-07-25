@@ -50,13 +50,28 @@ export function streamXlsx(rows: AsyncIterable<ReadingRow>): PassThrough {
   void (async () => {
     try {
       for await (const row of rows) {
+        // Cliente desconectou (aba fechada, timeout de proxy) — `output`
+        // (o `PassThrough`) já foi destruído. Sem essa checagem, o `for
+        // await` continuaria consumindo `rows` (e `streamRange` continuaria
+        // paginando o Postgres) indefinidamente, mesmo sem ninguém pra ler
+        // o resultado (F8 — achado 1). `break` aqui encerra o `for await`,
+        // o que chama automaticamente `rows.return?.()` — interrompe o
+        // generator (e a paginação) o quanto antes.
+        if (output.destroyed) {
+          break;
+        }
+
         sheet.addRow(toRowValues(row)).commit();
       }
 
-      sheet.commit();
-      await workbook.commit();
+      if (!output.destroyed) {
+        sheet.commit();
+        await workbook.commit();
+      }
     } catch (error) {
-      output.destroy(error instanceof Error ? error : new Error(String(error)));
+      if (!output.destroyed) {
+        output.destroy(error instanceof Error ? error : new Error(String(error)));
+      }
     }
   })();
 

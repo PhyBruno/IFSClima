@@ -274,8 +274,27 @@ export class DrizzleReadingRepository implements ReadingRepository {
       // de qualquer forma).
       const cursorCondition = cursor
         ? isDesc
-          ? sql`(${readings.timestamp}, ${readings.id}) < (${cursor.timestamp}, ${cursor.id})`
-          : sql`(${readings.timestamp}, ${readings.id}) > (${cursor.timestamp}, ${cursor.id})`
+          ? and(
+              sql`(${readings.timestamp}, ${readings.id}) < (${cursor.timestamp}, ${cursor.id})`,
+              // Bound redundante, mas INDEXÁVEL (F8 — achado 2): a
+              // comparação de tupla acima é quem garante a ordem/desempate
+              // exatos (sem pular/repetir linhas). Esta condição extra usa
+              // só `timestamp` (coberta por `readings_station_id_timestamp_idx`)
+              // e não muda o resultado (é implicada pela tupla) — só
+              // reforça, de forma explícita e portável, o start bound do
+              // index scan. Verificado via `EXPLAIN ANALYZE` (Postgres 16,
+              // ~50k linhas): o planner já deriva esse mesmo bound sozinho
+              // a partir da comparação de tupla (empurra `timestamp <=
+              // cursor` para `Index Cond`, mantendo a tupla como `Filter`
+              // só para o desempate por `id`) — plano e custo idênticos
+              // com ou sem esta linha. Mantida mesmo assim por clareza e
+              // como salvaguarda caso o planner mude de comportamento.
+              lte(readings.timestamp, cursor.timestamp),
+            )
+          : and(
+              sql`(${readings.timestamp}, ${readings.id}) > (${cursor.timestamp}, ${cursor.id})`,
+              gte(readings.timestamp, cursor.timestamp),
+            )
         : undefined;
 
       const whereClause = and(

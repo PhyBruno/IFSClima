@@ -94,4 +94,49 @@ describe("streamXlsx (T8.3 — HIST-07, HIST-08)", () => {
 
     expect(sheet?.rowCount).toBe(1);
   });
+
+  it("cancela o consumo do generator quando o cliente desconecta (F8 — achado 1)", async () => {
+    const state = { advanced: 0, returned: false };
+
+    // Generator FAKE controlado pelo teste: nunca termina sozinho (simula
+    // `streamRange` paginando um export grande) e conta quantas vezes foi
+    // avançado (quantos `.next()` resultaram em um `yield`), além de marcar
+    // se `.return()` foi chamado (o `finally` só roda quando o consumidor
+    // para de iterar via `break`/`return()`, nunca em iteração normal).
+    async function* infiniteRows(): AsyncGenerator<ReadingRow> {
+      try {
+        for (let i = 0; ; i++) {
+          state.advanced += 1;
+          yield row({ temperatureC: i });
+          // Pequeno delay pra dar chance ao teste de destruir `output`
+          // entre uma linha e outra (sem isso, o loop síncrono poderia
+          // rodar várias iterações antes do teste conseguir agir).
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      } finally {
+        state.returned = true;
+      }
+    }
+
+    const output = streamXlsx(infiniteRows());
+    // Drena o stream (produção também não espera por leitor nenhum, mas
+    // isso evita que o `PassThrough` acumule backpressure e afete o teste).
+    output.resume();
+
+    // Deixa o generator avançar algumas iterações antes de "desconectar".
+    await new Promise((resolve) => setTimeout(resolve, 12));
+    const advancedBeforeDestroy = state.advanced;
+    expect(advancedBeforeDestroy).toBeGreaterThan(0);
+
+    output.destroy();
+
+    // Tempo suficiente pra, SE o bug ainda existisse, o generator ter
+    // avançado bem mais (a cada 5ms) — mas com a correção o `for await`
+    // nota `output.destroyed` e para (chamando `.return()`) logo na
+    // primeira iteração pendente após o destroy.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(state.returned).toBe(true);
+    expect(state.advanced).toBeLessThanOrEqual(advancedBeforeDestroy + 2);
+  });
 });
