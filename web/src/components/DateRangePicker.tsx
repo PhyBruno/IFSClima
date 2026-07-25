@@ -37,15 +37,89 @@ import { PeriodSelector, type PeriodOption } from "./PeriodSelector";
  *
  * **`type="date"` (não `datetime-local`)**: o backend já aceita granularidade
  * de dia inteiro (o usuário escolhe "de/até que DIA", não um horário exato) —
- * `from` vira início do dia (`T00:00:00.000Z`) e `to` vira fim do dia
- * (`T23:59:59.999Z`), cobrindo o dia inteiro em UTC. Mais simples de testar
- * (RTL: `fireEvent.change(input, { target: { value: "2026-07-01" } })`) do
- * que compor `datetime-local` (data + hora em dois formatos de string
- * diferentes).
+ * `from` vira início do dia LOCAL e `to` vira fim do dia LOCAL, convertidos
+ * pros limites reais em UTC (ver `localDateStringToUtcDayBounds` abaixo).
+ * Mais simples de testar (RTL: `fireEvent.change(input, { target: { value:
+ * "2026-07-01" } })`) do que compor `datetime-local` (data + hora em dois
+ * formatos de string diferentes).
+ *
+ * **Dia do calendário LOCAL, não UTC (revisão de código F8, achado MÉDIO)**:
+ * `<input type="date">` devolve a data do calendário LOCAL do navegador
+ * (ex. `"2026-07-01"`). Concatenar essa string direto como
+ * `${from}T00:00:00.000Z` TRATARIA o dia local como se já fosse UTC — em
+ * fusos negativos (ex. UTC-3, o fuso do projeto/README) isso desloca o
+ * intervalo enviado ao backend em várias horas em relação ao dia que o
+ * usuário escolheu, dessincronizando com a tabela (`ReadingsTable` usa
+ * `formatDayMonth`/`formatTime`, que formatam UTC→local, ver
+ * `src/utils/formatTime.ts`). `localDateStringToUtcDayBounds` corrige isso
+ * construindo o `Date` via componentes (`new Date(year, month-1, day, ...)`),
+ * que o JS resolve à meia-noite/fim-do-dia no fuso LOCAL do ambiente —
+ * `.toISOString()` então dá o UTC correto do dia local pedido.
+ *
+ * **Validação client-side do intervalo custom (revisão de código F8, achado
+ * MÉDIO)**: o backend (`api/src/schemas/history.ts`, `MAX_RANGE_DAYS`)
+ * rejeita com 400 `from > to` ou intervalo maior que `MAX_RANGE_DAYS` dias —
+ * duplicamos essa mesma constante aqui (sem pacote compartilhado entre
+ * `api/` e `web/`, mesmo padrão de `src/api-client.ts`) pra dar feedback
+ * imediato na UI em vez de depender só do erro assíncrono do backend.
  */
 export type DateRangePreset = "24h" | "7d" | "30d" | "custom";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Duplica `MAX_RANGE_DAYS` de `api/src/schemas/history.ts` — não há pacote
+ * compartilhado entre `api/` e `web/` (mesmo padrão de `src/api-client.ts`,
+ * ver comentário no topo daquele arquivo). Mudar o limite no backend exige
+ * atualizar aqui também.
+ */
+const MAX_RANGE_DAYS = 366;
+
+/**
+ * `"YYYY-MM-DD"` (de `<input type="date">`, dia do calendário LOCAL do
+ * navegador) → limites REAIS em UTC do dia local escolhido: início
+ * (00:00:00.000 local) e fim (23:59:59.999 local), cada um convertido pra
+ * UTC via `toISOString()`.
+ *
+ * `new Date(year, monthIndex, day, h, m, s, ms)` é o construtor de
+ * COMPONENTES (não de string) — o JS resolve esses componentes no fuso LOCAL
+ * do ambiente onde roda, exatamente o que precisamos aqui (diferente de
+ * `new Date("YYYY-MM-DDT00:00:00.000Z")`, que fixaria a hora em UTC).
+ *
+ * Exportado para teste isolado da lógica de conversão (independente do fuso
+ * onde o teste roda, ver `test/components/DateRangePicker.test.tsx`).
+ */
+export function localDateStringToUtcDayBounds(dateStr: string): [string, string] {
+  const parts = dateStr.split("-");
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0);
+  const end = new Date(year, month - 1, day, 23, 59, 59, 999);
+  return [start.toISOString(), end.toISOString()];
+}
+
+/**
+ * Diferença em dias entre dois dias de calendário LOCAL (`"YYYY-MM-DD"`),
+ * comparando as meias-noites locais de cada um — não os limites UTC (que
+ * poderiam introduzir um viés de fuso na contagem). Negativo quando `toStr`
+ * é anterior a `fromStr`.
+ */
+function daysBetweenLocalDates(fromStr: string, toStr: string): number {
+  const fromParts = fromStr.split("-");
+  const toParts = toStr.split("-");
+  const fromStart = new Date(
+    Number(fromParts[0]),
+    Number(fromParts[1]) - 1,
+    Number(fromParts[2]),
+    0,
+    0,
+    0,
+    0,
+  );
+  const toStart = new Date(Number(toParts[0]), Number(toParts[1]) - 1, Number(toParts[2]), 0, 0, 0, 0);
+  return Math.round((toStart.getTime() - fromStart.getTime()) / MS_PER_DAY);
+}
 
 const PRESET_DAYS: Record<Exclude<DateRangePreset, "custom">, number> = {
   "24h": 1,
@@ -83,6 +157,7 @@ export function DateRangePicker({
   const [preset, setPreset] = useState<DateRangePreset>(defaultPreset);
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [customRangeError, setCustomRangeError] = useState<string | null>(null);
 
   function applyPreset(value: Exclude<DateRangePreset, "custom">) {
     const to = now();
@@ -102,9 +177,26 @@ export function DateRangePicker({
   }
 
   function emitCustomIfComplete(from: string, to: string) {
-    if (from && to) {
-      onChange(`${from}T00:00:00.000Z`, `${to}T23:59:59.999Z`);
+    if (!from || !to) {
+      return;
     }
+
+    const rangeDays = daysBetweenLocalDates(from, to);
+
+    if (rangeDays < 0) {
+      setCustomRangeError("A data 'De' não pode ser depois da data 'Até'.");
+      return;
+    }
+
+    if (rangeDays > MAX_RANGE_DAYS) {
+      setCustomRangeError(`O intervalo não pode ser maior que ${MAX_RANGE_DAYS} dias.`);
+      return;
+    }
+
+    setCustomRangeError(null);
+    const [fromUtc] = localDateStringToUtcDayBounds(from);
+    const [, toUtc] = localDateStringToUtcDayBounds(to);
+    onChange(fromUtc, toUtc);
   }
 
   function handleFromChange(value: string) {
@@ -152,6 +244,12 @@ export function DateRangePicker({
             />
           </div>
         </div>
+      )}
+
+      {preset === "custom" && customRangeError && (
+        <p role="alert" className="text-xs font-medium text-status-negative">
+          {customRangeError}
+        </p>
       )}
     </div>
   );
