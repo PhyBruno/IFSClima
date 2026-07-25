@@ -142,6 +142,25 @@ describe("GET /api/v1/readings e /export (T8.5 — integração, Postgres real)"
       expect(response.statusCode).toBe(400);
     });
 
+    it("achado F8 #2: to sozinho no passado distante → 400 (não 200 com total:0 e from > to silencioso)", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/readings?to=2000-01-15T00:00:00.000Z",
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toHaveProperty("issues");
+    });
+
+    it("from/to ambos ausentes continua 200 com default de últimas 24h (não regride HIST-05)", async () => {
+      const response = await app.inject({ method: "GET", url: "/api/v1/readings" });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { total: number; readings: unknown[] };
+      expect(body.total).toBe(0);
+      expect(body.readings).toEqual([]);
+    });
+
     it("define Cache-Control: no-store", async () => {
       const response = await app.inject({ method: "GET", url: "/api/v1/readings" });
 
@@ -231,6 +250,26 @@ describe("GET /api/v1/readings e /export (T8.5 — integração, Postgres real)"
       });
 
       expect(response.statusCode).toBe(400);
+    });
+
+    it("achado F8 #1: from sozinho a >366 dias de 'agora' → 400 (não inicia streaming de export gigante)", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/readings/export?from=2000-01-01T00:00:00.000Z",
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toHaveProperty("issues");
+    });
+
+    it("achado F8 #2: to sozinho no passado distante → 400 (não 200 com from > to silencioso)", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/readings/export?to=2000-01-15T00:00:00.000Z",
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toHaveProperty("issues");
     });
   });
 });

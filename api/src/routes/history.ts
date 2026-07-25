@@ -1,6 +1,20 @@
 import type { FastifyInstance } from "fastify";
 import { exportQuerySchema, historyQuerySchema } from "../schemas/history.js";
-import type { HistoryService } from "../services/history-service.js";
+import { InvalidRangeError, type HistoryService } from "../services/history-service.js";
+
+/**
+ * `InvalidRangeError` (services/history-service.ts) só é lançado depois que
+ * `resolveRange` já aplicou os defaults de `from`/`to` — cobre os casos que
+ * o Zod (`historyQuerySchema`/`exportQuerySchema`) não alcança porque só
+ * valida quando AMBOS os campos vêm na query (achados F8). Mapeado para o
+ * mesmo formato `{error, issues}` dos demais 400s da rota.
+ */
+function invalidRangeErrorResponse(error: InvalidRangeError) {
+  return {
+    error: "invalid query",
+    issues: [{ path: error.path, message: error.message }],
+  };
+}
 
 export interface HistoryRouteOptions {
   historyService: HistoryService;
@@ -32,16 +46,24 @@ export async function historyRoute(
       });
     }
 
-    const result = await historyService.list({
-      stationId,
-      from: parsed.data.from,
-      to: parsed.data.to,
-      page: parsed.data.page,
-      pageSize: parsed.data.page_size,
-      order: parsed.data.order,
-    });
+    try {
+      const result = await historyService.list({
+        stationId,
+        from: parsed.data.from,
+        to: parsed.data.to,
+        page: parsed.data.page,
+        pageSize: parsed.data.page_size,
+        order: parsed.data.order,
+      });
 
-    return reply.header("Cache-Control", "no-store").send(result);
+      return reply.header("Cache-Control", "no-store").send(result);
+    } catch (error) {
+      if (error instanceof InvalidRangeError) {
+        return reply.status(400).send(invalidRangeErrorResponse(error));
+      }
+
+      throw error;
+    }
   });
 
   app.get("/api/v1/readings/export", async (request, reply) => {
@@ -57,17 +79,25 @@ export async function historyRoute(
       });
     }
 
-    const { stream, contentType, filename } = historyService.exportStream({
-      stationId,
-      from: parsed.data.from,
-      to: parsed.data.to,
-      format: parsed.data.format,
-    });
+    try {
+      const { stream, contentType, filename } = historyService.exportStream({
+        stationId,
+        from: parsed.data.from,
+        to: parsed.data.to,
+        format: parsed.data.format,
+      });
 
-    return reply
-      .header("Cache-Control", "no-store")
-      .header("Content-Disposition", `attachment; filename="${filename}"`)
-      .type(contentType)
-      .send(stream);
+      return reply
+        .header("Cache-Control", "no-store")
+        .header("Content-Disposition", `attachment; filename="${filename}"`)
+        .type(contentType)
+        .send(stream);
+    } catch (error) {
+      if (error instanceof InvalidRangeError) {
+        return reply.status(400).send(invalidRangeErrorResponse(error));
+      }
+
+      throw error;
+    }
   });
 }

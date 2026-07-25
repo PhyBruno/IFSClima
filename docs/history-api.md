@@ -27,16 +27,24 @@ Nenhuma. Ver `docs/ingest-api.md` para o único endpoint autenticado da API
 
 | Parâmetro | Tipo | Default | Notas |
 | --- | --- | --- | --- |
-| `from` | string ISO 8601 (UTC, aceita offset) | `to − 24h` (ou `now − 24h` se `to` também ausente) | início do intervalo (inclusive) |
+| `from` | string ISO 8601 (UTC, aceita offset) | `now − 24h` | início do intervalo (inclusive); default sempre relativo a "agora", independente de `to` |
 | `to` | string ISO 8601 (UTC, aceita offset) | `now` | fim do intervalo (inclusive) |
 | `page` | inteiro ≥ 1 | `1` | página (1-based) |
 | `page_size` | inteiro ≥ 1 | `50` | máx **500** |
 | `order` | `asc` \| `desc` | `desc` | ordenação por `timestamp` |
 
-Regras de validação (HIST-10): quando **ambos** `from` e `to` são informados,
-`from` deve ser ≤ `to`, e o intervalo entre eles não pode exceder **366
-dias**. Informar só um dos dois é válido — o outro cai no default de "últimas
-24h" (HIST-05).
+`from` e `to` são defaultados de forma **independente**: cada lado ausente
+cai no seu próprio default ("últimas 24h" a partir de "agora" — HIST-05),
+nunca em função do outro. Informar só um dos dois é válido.
+
+Regras de validação (HIST-10): `from` deve ser ≤ `to`, e o intervalo entre
+eles não pode exceder **366 dias** — verificado sobre o intervalo **já
+resolvido** (depois dos defaults acima serem aplicados), não só quando ambos
+vêm na query. Isso evita que, por exemplo, `from` sozinho muito no passado
+produza um intervalo gigante (`to` cai em "agora"), ou que `to` sozinho muito
+no passado produza um intervalo invertido (`from` cai em "agora − 24h" > `to`
+informado) — ambos os casos retornam `400`, nunca um `200` com um dataset
+enorme ou vazio silenciosamente.
 
 ### Response — `200 OK`
 
@@ -75,7 +83,7 @@ dias**. Informar só um dos dois é válido — o outro cai no default de "últi
 
 | Parâmetro | Tipo | Default | Notas |
 | --- | --- | --- | --- |
-| `from` | string ISO 8601 | `to − 24h`/`now − 24h` | mesma regra de `/readings` |
+| `from` | string ISO 8601 | `now − 24h` | mesma regra de `/readings` (default independente de `to`) |
 | `to` | string ISO 8601 | `now` | mesma regra de `/readings` |
 | `format` | `csv` \| `xlsx` | `csv` | formato do arquivo |
 

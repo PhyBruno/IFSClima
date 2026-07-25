@@ -6,7 +6,7 @@ import type {
   ReadingRepository,
   ReadingRow,
 } from "../repositories/reading-repository.js";
-import type { ExportFormat, Order } from "../schemas/history.js";
+import { MAX_RANGE_DAYS, type ExportFormat, type Order } from "../schemas/history.js";
 
 /** `HistoryService` só precisa das operações de intervalo — nunca das de ingestão (T8.4). */
 export type HistoryRepository = Pick<ReadingRepository, "findRange" | "streamRange">;
@@ -59,11 +59,54 @@ export interface HistoryService {
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
+const MAX_RANGE_MS = MAX_RANGE_DAYS * MS_PER_DAY;
 
 const CONTENT_TYPE_BY_FORMAT: Record<ExportFormat, string> = {
   csv: "text/csv; charset=utf-8",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
+
+/**
+ * Erro de intervalo `from`/`to` inválido — lançado depois de `resolveRange`
+ * já ter aplicado os defaults independentes de cada lado (HIST-05). Cobre os
+ * casos que `checkDateRange` (schema Zod) não alcança porque só valida
+ * quando AMBOS os campos vêm na query (achados F8: `from` sozinho >366 dias
+ * de "agora"; `to` sozinho no passado distante produzindo `from > to` depois
+ * do default). A rota (`routes/history.ts`) captura e mapeia para `400`, no
+ * mesmo formato `{error, issues}` dos demais 400s do projeto.
+ */
+export class InvalidRangeError extends Error {
+  constructor(
+    public readonly path: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InvalidRangeError";
+  }
+}
+
+/**
+ * Revalida `from ≤ to` e intervalo máximo de `MAX_RANGE_DAYS` dias sobre o
+ * par JÁ RESOLVIDO (pós-default) — não só sobre os valores originais da
+ * query. Necessário porque cada lado de `resolveRange` é defaultado de
+ * forma independente: informar só um dos dois pode produzir um intervalo
+ * resolvido inválido que o schema nunca vê (ver `InvalidRangeError`).
+ */
+function assertValidResolvedRange(from: Date, to: Date): void {
+  const fromMs = from.getTime();
+  const toMs = to.getTime();
+
+  if (fromMs > toMs) {
+    throw new InvalidRangeError("to", "'to' deve ser maior ou igual a 'from'");
+  }
+
+  if (toMs - fromMs > MAX_RANGE_MS) {
+    throw new InvalidRangeError(
+      "to",
+      `intervalo entre 'from' e 'to' não pode exceder ${MAX_RANGE_DAYS} dias`,
+    );
+  }
+}
 
 /**
  * Resolve `from`/`to` opcionais para um intervalo `[Date, Date]` efetivo.
@@ -103,6 +146,7 @@ class DefaultHistoryService implements HistoryService {
 
   async list(params: ListParams): Promise<ListResult> {
     const [from, to] = resolveRange(params.from, params.to, this.clock());
+    assertValidResolvedRange(from, to);
 
     const findRangeParams: FindRangeParams = {
       stationId: params.stationId,
@@ -127,6 +171,7 @@ class DefaultHistoryService implements HistoryService {
 
   exportStream(params: ExportParams): ExportResult {
     const [from, to] = resolveRange(params.from, params.to, this.clock());
+    assertValidResolvedRange(from, to);
     const rows = this.repository.streamRange(params.stationId, from, to, "asc");
 
     const stream = params.format === "csv" ? streamCsv(rows) : streamXlsx(rows);

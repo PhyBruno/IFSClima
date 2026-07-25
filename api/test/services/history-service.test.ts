@@ -5,7 +5,11 @@ import type {
   FindRangeResult,
   ReadingRow,
 } from "../../src/repositories/reading-repository.js";
-import { createHistoryService, type HistoryRepository } from "../../src/services/history-service.js";
+import {
+  createHistoryService,
+  InvalidRangeError,
+  type HistoryRepository,
+} from "../../src/services/history-service.js";
 
 function row(overrides: Partial<ReadingRow> = {}): ReadingRow {
   return {
@@ -133,6 +137,64 @@ describe("HistoryService (T8.4 — HIST-01, HIST-02, HIST-05, HIST-06, HIST-07)"
       expect(result.total).toBe(0);
       expect(result.readings).toEqual([]);
     });
+
+    it("achado F8 #1: from sozinho a >366 dias de 'agora' → InvalidRangeError (não um intervalo gigante silencioso)", async () => {
+      const repository = new FakeRepository();
+      const service = createHistoryService(repository, () => FIXED_NOW);
+
+      await expect(
+        service.list({
+          stationId: "main",
+          from: "2000-01-01T00:00:00.000Z",
+          page: 1,
+          pageSize: 50,
+          order: "desc",
+        }),
+      ).rejects.toThrow(InvalidRangeError);
+      // Repositório nunca deve ser consultado com um intervalo inválido.
+      expect(repository.lastFindRangeParams).toBeUndefined();
+    });
+
+    it("achado F8 #2: to sozinho no passado distante → InvalidRangeError (não 200 com from > to silencioso)", async () => {
+      const repository = new FakeRepository();
+      const service = createHistoryService(repository, () => FIXED_NOW);
+
+      await expect(
+        service.list({
+          stationId: "main",
+          to: "2026-01-15T00:00:00.000Z",
+          page: 1,
+          pageSize: 50,
+          order: "desc",
+        }),
+      ).rejects.toThrow(InvalidRangeError);
+      expect(repository.lastFindRangeParams).toBeUndefined();
+    });
+
+    it("from/to ambos ausentes continuam sem erro (não regride HIST-05)", async () => {
+      const repository = new FakeRepository();
+      const service = createHistoryService(repository, () => FIXED_NOW);
+
+      await expect(
+        service.list({ stationId: "main", page: 1, pageSize: 50, order: "desc" }),
+      ).resolves.toMatchObject({ from: "2026-07-22T14:30:00.000Z", to: "2026-07-23T14:30:00.000Z" });
+    });
+
+    it("from/to ambos presentes e válidos continuam funcionando (não regride)", async () => {
+      const repository = new FakeRepository({ rows: [row()], total: 1 });
+      const service = createHistoryService(repository, () => FIXED_NOW);
+
+      await expect(
+        service.list({
+          stationId: "main",
+          from: "2026-07-22T14:30:00.000Z",
+          to: "2026-07-23T14:30:00.000Z",
+          page: 1,
+          pageSize: 50,
+          order: "desc",
+        }),
+      ).resolves.toMatchObject({ total: 1 });
+    });
   });
 
   describe("exportStream", () => {
@@ -186,6 +248,51 @@ describe("HistoryService (T8.4 — HIST-01, HIST-02, HIST-05, HIST-06, HIST-07)"
       const result = service.exportStream({ stationId: "main", format: "csv" });
 
       expect(result.filename).toBe("readings_2026-07-22_2026-07-23.csv");
+    });
+
+    it("achado F8 #1: export com from sozinho a >366 dias de 'agora' → InvalidRangeError, sem iniciar streaming", () => {
+      const repository = new FakeRepository(undefined, [row()]);
+      const service = createHistoryService(repository, () => FIXED_NOW);
+
+      expect(() =>
+        service.exportStream({
+          stationId: "main",
+          from: "2000-01-01T00:00:00.000Z",
+          format: "csv",
+        }),
+      ).toThrow(InvalidRangeError);
+      // streamRange nunca deve ser chamado com um intervalo inválido.
+      expect(repository.lastStreamRangeArgs).toBeUndefined();
+    });
+
+    it("achado F8 #2: export com to sozinho no passado distante → InvalidRangeError", () => {
+      const repository = new FakeRepository(undefined, [row()]);
+      const service = createHistoryService(repository, () => FIXED_NOW);
+
+      expect(() =>
+        service.exportStream({
+          stationId: "main",
+          to: "2026-01-15T00:00:00.000Z",
+          format: "csv",
+        }),
+      ).toThrow(InvalidRangeError);
+      expect(repository.lastStreamRangeArgs).toBeUndefined();
+    });
+
+    it("InvalidRangeError expõe path='to' consistente com o formato de erro da rota", () => {
+      const repository = new FakeRepository(undefined, []);
+      const service = createHistoryService(repository, () => FIXED_NOW);
+
+      let thrown: unknown;
+      try {
+        service.exportStream({ stationId: "main", from: "2000-01-01T00:00:00.000Z", format: "csv" });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(InvalidRangeError);
+      expect((thrown as InvalidRangeError).path).toBe("to");
+      expect((thrown as InvalidRangeError).message).toContain("366 dias");
     });
   });
 });
