@@ -76,6 +76,20 @@ function lazyDrizzleReadingRepository(): ReadingRepository {
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({
     logger: createLoggerOptions(),
+    // F7 (revisão de código): sem `trustProxy`, `request.ip` é sempre o IP
+    // de quem fala TCP direto com o processo Fastify — em produção, isso é
+    // o container do Nginx (`web/nginx.conf` faz `proxy_pass` pra
+    // `api:3000`), nunca o cliente real. Como `@fastify/rate-limit` usa
+    // `request.ip` como chave por padrão, sem isso TODOS os clientes atrás
+    // do Nginx colapsariam num único balde de rate limit em
+    // `POST /api/v1/ingest` — um cliente abusivo derrubaria (429) a estação
+    // legítima. `trustProxy: true` faz o Fastify interpretar nativamente
+    // `X-Forwarded-For`/`X-Real-IP` como a origem real. Isso é seguro aqui
+    // porque a api só é alcançada via a rede Docker interna (dev) ou atrás
+    // do Nginx que este mesmo projeto controla (prod, `web/nginx.conf`) —
+    // não existe um proxy de terceiro não confiável na frente que poderia
+    // forjar esses headers livremente antes de chegar na api.
+    trustProxy: true,
   });
 
   const readingRepository = options.readingRepository ?? lazyDrizzleReadingRepository();
