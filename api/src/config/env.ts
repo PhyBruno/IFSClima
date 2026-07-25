@@ -39,6 +39,40 @@ export function parseRateLimitEnv(source: Record<string, string | undefined> = p
   return result.data;
 }
 
+// F7 (achado de revisão): nível do logger estruturado (T7.2 — QA-06). Schema
+// separado (mesmo padrão de `rateLimitEnvSchema` acima), leniente e com
+// default, porque `createLoggerOptions()` é chamada dentro de `buildApp()`
+// antes de `parseEnv()` completo poder rodar (testes sem
+// DATABASE_URL/INGEST_API_KEY configuradas, ex. `test/app.test.ts`).
+const loggerEnvSchema = z.object({
+  LOG_LEVEL: z
+    .enum(["trace", "debug", "info", "warn", "error", "fatal", "silent"])
+    .default("info"),
+});
+
+export type LoggerEnv = z.infer<typeof loggerEnvSchema>;
+
+/**
+ * Valida (com default "info") só `LOG_LEVEL` — nunca lança por falta de
+ * `DATABASE_URL`/`INGEST_API_KEY`. Um valor fora dos níveis válidos do pino
+ * (`trace|debug|info|warn|error|fatal|silent`) lança um `Error` com
+ * mensagem clara em vez de deixar `pino({level: ...})` explodir dentro de
+ * `buildApp()` com um valor inválido não tratado.
+ */
+export function parseLoggerEnv(source: Record<string, string | undefined> = process.env): LoggerEnv {
+  const result = loggerEnvSchema.safeParse(source);
+
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `- ${issue.path.join(".")}: ${issue.message}`)
+      .join("\n");
+
+    throw new Error(`Configuração de logger inválida:\n${issues}`);
+  }
+
+  return result.data;
+}
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -64,7 +98,8 @@ const envSchema = z
     // (MAX_BATCH em src/schemas/ingest.ts).
     MAX_BATCH: z.coerce.number().int().positive().default(5000),
   })
-  .merge(rateLimitEnvSchema);
+  .merge(rateLimitEnvSchema)
+  .merge(loggerEnvSchema);
 
 export type Env = z.infer<typeof envSchema>;
 
