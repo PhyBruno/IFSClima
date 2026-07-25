@@ -17,8 +17,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    # Sem `ports:` publicado no host de propósito (F7 T7.2, hardening): `api`
+    # e `web` já alcançam `db` pela rede interna do compose (hostname `db`),
+    # não há necessidade de expor o Postgres em 0.0.0.0 no host em produção
+    # (superfície de ataque desnecessária, protegida só pela senha do
+    # `.env.prod`). Acesso administrativo pontual: `docker compose -f
+    # docker-compose.prod.yml exec db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}`.
+    # Em dev, `docker-compose.yml` continua publicando normalmente.
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,14 +41,23 @@ services:
       target: runtime
     environment:
       NODE_ENV: production
-      PORT: ${API_PORT:-3000}
+      # Porta INTERNA do Fastify dentro do container: sempre fixa em 3000,
+      # NÃO `${API_PORT}`. `web/nginx.conf` tem `proxy_pass http://api:3000;`
+      # hardcoded (decisão D22 em `.specs/project/STATE.md` — porta interna da
+      # rede Docker é convenção fixa). `API_PORT` só controla a porta
+      # publicada no HOST (ver `ports:` abaixo) — se ele mudasse também a
+      # porta interna, o Nginx continuaria apontando pra `api:3000` e todo
+      # `/api/*` viraria 502 silencioso.
+      PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       INGEST_API_KEY: ${INGEST_API_KEY}
       MAX_BATCH: ${MAX_BATCH:-5000}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
     ports:
-      - "${API_PORT:-3000}:${API_PORT:-3000}"
+      # Host configurável via `API_PORT`, container sempre 3000 (ver comentário
+      # em `environment.PORT` acima).
+      - "${API_PORT:-3000}:3000"
     # Sem bind mounts: a imagem `runtime` já embarca `dist/` (compilado no
     # stage `build`), `node_modules` só de produção (stage `prod-deps`,
     # `npm ci --omit=dev`) e `db/migrations` (COPY no Dockerfile) — migrations
@@ -53,7 +67,8 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:${API_PORT:-3000}/health || exit 1"]
+      # Porta interna fixa (3000), mesma razão do `environment.PORT` acima.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
