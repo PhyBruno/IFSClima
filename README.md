@@ -100,7 +100,7 @@ Para parar e remover os containers: `docker compose down` (adicione `-v` para ta
 Requer Node.js 20+.
 
 ```bash
-npm run install:all      # instala api/ e web/
+npm run install:all      # instala api/, web/ e e2e/
 
 # em dois terminais:
 npm run dev:api           # http://localhost:3000 (requer .env — veja abaixo)
@@ -144,15 +144,15 @@ Para parar: `docker compose -f docker-compose.prod.yml --env-file .env.prod down
 npm test             # roda Vitest em api/ e web/ (unitário/integração)
 npm run test:coverage # roda testes com relatório de cobertura (threshold >= 80%)
 npm run test:e2e      # roda a suíte E2E Playwright (e2e/) — ver e2e/README.md
-npm run lint          # ESLint em api/ e web/
-npm run typecheck     # tsc --noEmit em api/ e web/
+npm run lint          # ESLint em api/ e web/ (e2e/ não tem ESLint configurado)
+npm run typecheck     # tsc --noEmit em api/, web/ e e2e/
 npm run build         # build de produção de api/ e web/
 npm run db:generate   # drizzle-kit generate — nova migration a partir de api/src/db/schema.ts
 npm run db:migrate    # aplica migrations pendentes em db/migrations/ (idempotente)
 npm run db:seed       # garante/atualiza a estação `main` (idempotente)
 ```
 
-Cada pacote (`api/`, `web/`, `e2e/`) também expõe os mesmos scripts individualmente (`npm test`, `npm run lint`, `npm run typecheck`, `npm run test:coverage`, dentro da respectiva pasta). `db:generate`/`db:migrate`/`db:seed` exigem `DATABASE_URL` no ambiente (via `.env` + Docker, ou exportada manualmente para rodar fora de containers — ver `db/README.md`).
+`api/` e `web/` também expõem os mesmos scripts individualmente (`npm test`, `npm run lint`, `npm run typecheck`, `npm run test:coverage`, dentro da respectiva pasta). `e2e/` expõe um conjunto diferente e menor (ver `e2e/package.json`): `npm run test:e2e`, `npm run test:e2e:headed`, `npm run test:e2e:report` e `npm run typecheck` — não tem `lint` nem `test:coverage` próprios. `db:generate`/`db:migrate`/`db:seed` exigem `DATABASE_URL` no ambiente (via `.env` + Docker, ou exportada manualmente para rodar fora de containers — ver `db/README.md`).
 
 ## Variáveis de ambiente
 
@@ -171,6 +171,7 @@ Há **dois** arquivos de exemplo, um por ambiente — nunca misture os dois:
 | `MAX_BATCH` | api | sim (padrão 5000) | sim (padrão 5000) | Teto de leituras por lote em `POST /api/v1/ingest` (acima disso → `413`) |
 | `RATE_LIMIT_MAX` | api | sim (padrão 100) | sim (padrão 100) | Requisições permitidas por janela em `POST /api/v1/ingest` (acima disso → `429`) — F7 |
 | `RATE_LIMIT_WINDOW_MS` | api | sim (padrão 60000) | sim (padrão 60000) | Duração da janela de rate limit em ms (default 60s) — F7 |
+| `LOG_LEVEL` | api | sim (padrão `info`) | sim (padrão `info`) | Nível do logger estruturado (pino) — `trace \| debug \| info \| warn \| error \| fatal \| silent`, validado por `parseLoggerEnv()` (`src/config/env.ts`) — F7 |
 | `WEB_PORT` | web | sim (padrão 5173, dev server Vite) | sim (padrão 8080, mapeada para a porta 80 do Nginx) | Porta publicada no host |
 | `API_TARGET` / `WEB_TARGET` | api/web | sim (`dev`) | **não existe** — stage sempre `runtime` | Estágio do Dockerfile usado pelo compose (`dev` \| `build` \| `runtime`) |
 
@@ -228,7 +229,7 @@ Política de retry/buffer recomendada (detalhada com passo a passo em `docs/inge
 ## Testes
 
 - **Unitários/integração** (`npm test`, raiz): Vitest em `api/` e `web/` — TDD, testes escritos antes da implementação (smoke de `app.ts`, integração de `/health`, `/api/v1/ingest`, `/api/v1/readings*` via `light-my-request`, render de componentes via Testing Library, constraints de schema/migrations via Postgres real).
-  - Testes de banco (`api/test/db/`, `api/test/repositories/`, `api/test/routes/`) sobem um Postgres 16 efêmero via **Testcontainers** (não dependem do `db` do compose estar de pé) para validar conectividade, constraints (`UNIQUE`, `FK`, nullability) e idempotência de migration/seed/ingestão (`ON CONFLICT DO NOTHING`).
+  - Testes de banco (`api/test/db/`, `api/test/repositories/`, e a maioria de `api/test/routes/` — `health.test.ts`, `history.test.ts`, `ingest.test.ts`, `readings.test.ts`) sobem um Postgres 16 efêmero via **Testcontainers** (não dependem do `db` do compose estar de pé) para validar conectividade, constraints (`UNIQUE`, `FK`, nullability) e idempotência de migration/seed/ingestão (`ON CONFLICT DO NOTHING`). Exceção: `api/test/routes/rate-limit.test.ts` usa um `ReadingRepository` fake em memória (sem Postgres real) — o alvo daquele teste é só o comportamento de rate limit da rota de ingestão, não a camada de banco.
   - Cobertura mínima de 80% (lines/functions/branches/statements) configurada em `vitest.config.ts` de cada pacote.
   - Lint (ESLint) e format (Prettier) padronizados em `api/` e `web/`.
 - **E2E** (`npm run test:e2e`, raiz — delega para `e2e/`): suíte Playwright que sobe o `docker compose` completo e valida o fluxo crítico ponta a ponta — ingestão via `POST /api/v1/ingest` aparecendo no dashboard (cards + gráficos), incluindo idempotência ao reenviar o mesmo lote. Detalhes de configuração, variáveis de ambiente da suíte e troubleshooting sem Docker em **`e2e/README.md`**.

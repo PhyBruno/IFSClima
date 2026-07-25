@@ -4,7 +4,7 @@
   "private": true,
   "description": "Monorepo da Estação Meteorológica (api + web) — scripts agregados",
   "scripts": {
-    "install:all": "npm install --prefix api && npm install --prefix web",
+    "install:all": "npm install --prefix api && npm install --prefix web && npm install --prefix e2e",
     "dev:api": "npm run dev --prefix api",
     "dev:web": "npm run dev --prefix web",
     "build": "npm run build --prefix api && npm run build --prefix web",
@@ -13,7 +13,7 @@
     "test:e2e": "npm run test:e2e --prefix e2e",
     "lint": "npm run lint --prefix api && npm run lint --prefix web",
     "lint:fix": "npm run lint:fix --prefix api && npm run lint:fix --prefix web",
-    "typecheck": "npm run typecheck --prefix api && npm run typecheck --prefix web",
+    "typecheck": "npm run typecheck --prefix api && npm run typecheck --prefix web && npm run typecheck --prefix e2e",
     "format:check": "npm run format:check --prefix api && npm run format:check --prefix web",
     "db:generate": "npm run db:generate --prefix api",
     "db:migrate": "npm run db:migrate --prefix api",

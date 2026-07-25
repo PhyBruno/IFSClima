@@ -142,7 +142,21 @@ test.describe("Fluxo crítico: ingestão → dashboard (F7 T7.1, QA-01/QA-02/QA-
         const labelsBefore = await temperatureChart.locator("span").allTextContents();
 
         const sevenDaysButton = page.getByRole("button", { name: "7 dias" });
+
+        // `placeholderData: keepPreviousData` (`useSeries.ts`) faz o card
+        // continuar desenhando os dados de 24h até o refetch de 7d chegar —
+        // as asserções logo após o clique (URL, aria-pressed, svg visível,
+        // EmptyState ausente) passam instantaneamente contra esse conteúdo
+        // VELHO, sem provar que o dado de 7d de fato chegou. Armamos a
+        // promise ANTES do clique (não depois) para não perder o evento de
+        // rede por race entre o clique e o registro do listener; só
+        // seguimos depois que a resposta do NOVO período (temperature_c/7d)
+        // realmente chegou.
+        const sevenDaysResponsePromise = page.waitForResponse(
+          (response) => response.url().includes("metric=temperature_c") && response.url().includes("range=7d"),
+        );
         await sevenDaysButton.click();
+        await sevenDaysResponsePromise;
 
         // `ChartsSection` guarda o período em `?range=` (não um state solto,
         // ver docstring do componente) — a URL mudar é o sinal mais direto
@@ -161,9 +175,15 @@ test.describe("Fluxo crítico: ingestão → dashboard (F7 T7.1, QA-01/QA-02/QA-
         // DD/MM, em 7d — ver `buildXLabels`/`uniqueDayLabels` em
         // `ChartsSection.tsx`) — evidência observável de que o gráfico de
         // fato RE-RENDERIZOU com uma agregação diferente, não só manteve a
-        // tela anterior.
-        const labelsAfter = await temperatureChart.locator("span").allTextContents();
-        expect(labelsAfter.join(",")).not.toBe(labelsBefore.join(","));
+        // tela anterior. Já esperamos a resposta de rede acima, mas o
+        // React Query ainda precisa processá-la e disparar o re-render —
+        // `expect(...).toPass()` dá retry (web-first) a essa leitura em vez
+        // de uma comparação de string num único instante, que seria a
+        // própria race que este achado aponta.
+        await expect(async () => {
+          const labelsAfter = await temperatureChart.locator("span").allTextContents();
+          expect(labelsAfter.join(",")).not.toBe(labelsBefore.join(","));
+        }).toPass();
       });
 
       await test.step("QA-03: reenviar o MESMO lote confirma idempotência (accepted=0, duplicates=N)", async () => {
