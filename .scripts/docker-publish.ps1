@@ -1,6 +1,7 @@
-<#
+﻿<#
 .SYNOPSIS
-    Builda as imagens de produção (api, web) e publica no Docker Hub.
+    Builda as imagens de produção (api, web), publica no Docker Hub e sobe o
+    stack localmente com as imagens recém-publicadas.
 
 .DESCRIPTION
     Usa o stage `runtime` de cada Dockerfile (api/Dockerfile, web/Dockerfile).
@@ -10,6 +11,10 @@
       <repo>:api-<versao>   <repo>:api-latest
       <repo>:web-<versao>   <repo>:web-latest
 
+    Depois do push, sobe `docker-compose.prod.yml` localmente (db + api + web)
+    reaproveitando as imagens que acabaram de ser buildadas — é assim que a
+    aplicação fica "em execução" na máquina que rodou o script.
+
 .PARAMETER DockerHubRepo
     Repositório Docker Hub de destino (ex: "usuario/ifsclima"). Se omitido,
     usa a variável de ambiente DOCKERHUB_REPO.
@@ -17,6 +22,10 @@
 .PARAMETER SkipPush
     Só builda e tageia localmente, sem enviar ao Docker Hub. Útil para testar
     o script sem estar logado / sem consumir rate limit do registry.
+
+.PARAMETER SkipRun
+    Não sobe o stack localmente após o build/push — só builda (e publica, se
+    -SkipPush não estiver presente).
 
 .EXAMPLE
     $env:DOCKERHUB_REPO = "usuario/ifsclima"
@@ -29,7 +38,8 @@
 [CmdletBinding()]
 param(
     [string]$DockerHubRepo = $env:DOCKERHUB_REPO,
-    [switch]$SkipPush
+    [switch]$SkipPush,
+    [switch]$SkipRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,11 +90,36 @@ try {
         }
     }
 
-    Write-Host "`nConcluído. Imagens publicadas em ${DockerHubRepo}:" -ForegroundColor Green
+    if ($SkipPush) {
+        Write-Host "`nConcluído. Imagens buildadas localmente (push pulado):" -ForegroundColor Green
+    }
+    else {
+        Write-Host "`nConcluído. Imagens publicadas em ${DockerHubRepo}:" -ForegroundColor Green
+    }
     foreach ($service in $services) {
         Write-Host "  - ${service}-${version}"
         Write-Host "  - ${service}-latest"
     }
+
+    if ($SkipRun) {
+        Write-Host "`n-SkipRun ativo: não subindo o stack localmente." -ForegroundColor DarkYellow
+        return
+    }
+
+    $envProdPath = Join-Path $repoRoot ".env.prod"
+    if (-not (Test-Path $envProdPath)) {
+        Write-Warning "'.env.prod' não encontrado em $repoRoot — pulando execução local. Copie '.env.prod.example' para '.env.prod', ajuste os segredos e rode novamente (ou apenas 'docker compose -f docker-compose.prod.yml --env-file .env.prod up -d')."
+        return
+    }
+
+    Write-Host "`n==> Subindo o stack localmente (docker-compose.prod.yml)" -ForegroundColor Yellow
+    docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao subir o stack local via 'docker compose -f docker-compose.prod.yml up -d --build'."
+    }
+
+    Write-Host "`nStack em execução localmente (db + api + web)." -ForegroundColor Green
+    Write-Host "Confira as portas publicadas com: docker compose -f docker-compose.prod.yml ps" -ForegroundColor Green
 }
 finally {
     Pop-Location
