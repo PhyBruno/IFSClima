@@ -8,7 +8,7 @@ Plataforma web que recebe, armazena e visualiza os dados de uma estação meteor
 > - **F2 — Schema/migrations**: tabelas `stations`/`readings` (Drizzle), constraint `(station_id, timestamp)` para idempotência.
 > - **F3 — Ingestão** (`POST /api/v1/ingest`): único endpoint de entrada de dados, auth `X-API-Key`, validação Zod, lote idempotente — ver `docs/ingest-api.md`.
 > - **F4 — API de leitura**: `GET /api/v1/readings/latest` e `GET /api/v1/readings/series` (séries agregadas por hora/dia), consumidas pelo dashboard.
-> - **F5 — Design system**: tokens (cores/tipografia/espaçamento) extraídos do design original, temas claro/escuro, componentes base (galeria em `/__ui`) — ver `docs/design-extraction.md`.
+> - **F5 — Design system**: tokens (cores/tipografia/espaçamento) extraídos do design original, temas claro/escuro, componentes base (galeria em `/__ui`), favicon (`web/public/favicon.svg`, mesmo ícone verde da logo `IFSClima` na sidebar) — ver `docs/design-extraction.md`.
 > - **F6 — Dashboard**: página única responsiva com cards por sensor + gráficos por período (24h/7d/30d).
 > - **F7 — E2E, hardening & deploy**: suíte E2E Playwright, observabilidade (logs estruturados, `/health` real), rate limiting, imagens Docker de produção multi-stage — **esta seção do README**.
 > - **F8 — Histórico + exportação**: `GET /api/v1/readings` (paginado) e `/readings/export` (CSV/XLSX streaming), página `/historico` — ver `docs/history-api.md`.
@@ -44,6 +44,8 @@ Plataforma web que recebe, armazena e visualiza os dados de uma estação meteor
 │   └── Dockerfile       # multi-stage: dev | build | prod-deps | runtime
 ├── web/                 # React + Vite + TS (porta padrão 5173)
 │   ├── src/
+│   ├── public/
+│   │   └── favicon.svg  # ícone do site (mesmo círculo verde da logo IFSClima na sidebar)
 │   ├── test/
 │   ├── nginx.conf       # F7: proxy /api/* -> api, usado só pelo stage `runtime`
 │   └── Dockerfile       # multi-stage: dev | build | runtime
@@ -54,11 +56,14 @@ Plataforma web que recebe, armazena e visualiza os dados de uma estação meteor
 │   ├── ingest-api.md         # contrato completo de POST /api/v1/ingest
 │   ├── history-api.md        # contrato de GET /readings e /readings/export
 │   └── design-extraction.md  # design system (tokens/componentes)
+├── .scripts/
+│   ├── docker-publish.ps1     # builda api+web (stage runtime), publica no Docker Hub e sobe o stack local com as imagens publicadas
+│   └── rebuild-local.ps1      # builda api+web localmente (versão incremental), SEM publicar, e sobe via docker-compose.prod.yml
 ├── docker-compose.yml         # dev (bind mount de código, hot reload)
 ├── docker-compose.prod.yml    # produção (imagens runtime, sem bind mount)
 ├── .env.example                # env de dev
 ├── .env.prod.example            # env de produção
-└── package.json         # scripts agregados (test/lint/typecheck/build/db:*/test:e2e)
+└── package.json         # scripts agregados (test/lint/typecheck/build/db:*/test:e2e/docker:publish)
 ```
 
 ## Quickstart (Docker — recomendado)
@@ -137,6 +142,17 @@ Diferenças-chave em relação ao `docker-compose.yml` de dev:
 Comportamento de boot é o mesmo de dev: a `api` roda **migrations + seed da estação `main` automaticamente** antes de aceitar tráfego (idempotente, seguro em todo restart/redeploy), e **falha o boot com erro explícito** se faltar `DATABASE_URL`/`INGEST_API_KEY` (nunca sobe silenciosamente maldeconfigurada).
 
 Para parar: `docker compose -f docker-compose.prod.yml --env-file .env.prod down` (adicione `-v` para também apagar o volume de dados do Postgres — cuidado, isso é destrutivo em produção).
+
+### Publicar/rebuildar as imagens de produção (`.scripts/`)
+
+Dois scripts PowerShell cobrem o ciclo de build de imagens `runtime` (api/web), com versionamento incremental baseado no número de commits (`git rev-list --count HEAD`):
+
+| Script | Publica no Docker Hub? | O que faz |
+| --- | --- | --- |
+| `.scripts/docker-publish.ps1` (`npm run docker:publish`) | Sim | `docker build --target runtime` de `api`/`web`, tag `<repo>:api-<versão>`/`<repo>:api-latest` (e equivalente `web-*`), `docker push` das 4 tags, depois sobe `docker-compose.prod.yml` localmente reaproveitando as imagens recém-publicadas. Requer `docker login` antes e o repositório via `-DockerHubRepo usuario/repo` ou `$env:DOCKERHUB_REPO`. Flags `-SkipPush` (só builda/tageia) e `-SkipRun` (não sobe o stack) disponíveis. |
+| `.scripts/rebuild-local.ps1` | Não | 100% local: `docker compose -f docker-compose.prod.yml build` (stage `runtime`), tag `local-<versão>`/`local-latest` para cada serviço (lidas por `API_IMAGE`/`WEB_IMAGE` no `docker-compose.prod.yml`), depois `docker compose ... up -d`. Requer `.env.prod` já existente. Flags `-NoCache` e `-SkipDeploy` disponíveis. |
+
+Ambos exigem execução via `powershell -ExecutionPolicy Bypass -File .scripts/<script>.ps1 [flags]` (ou o atalho `npm run docker:publish` para o primeiro).
 
 ## Scripts agregados (raiz)
 
