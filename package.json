@@ -17,6 +17,7 @@
     "format:check": "npm run format:check --prefix api && npm run format:check --prefix web",
     "db:generate": "npm run db:generate --prefix api",
     "db:migrate": "npm run db:migrate --prefix api",
-    "db:seed": "npm run db:seed --prefix api"
+    "db:seed": "npm run db:seed --prefix api",
+    "docker:publish": "powershell -ExecutionPolicy Bypass -File .scripts/docker-publish.ps1"
   }
 }
