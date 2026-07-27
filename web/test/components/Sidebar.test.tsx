@@ -11,12 +11,12 @@ describe("Sidebar", () => {
     expect(dashboardLink).toHaveAttribute("href", "/");
   });
 
-  it("'Histórico' aparece desabilitado (F8 ainda não existe como página) — não é um link", () => {
+  it("'Histórico' (F8) é um link real para /historico, não marcado como página atual quando active='dashboard'", () => {
     render(<Sidebar active="dashboard" />);
 
-    expect(screen.queryByRole("link", { name: /histórico/i })).not.toBeInTheDocument();
-    const historico = screen.getByText("Histórico").closest('[aria-disabled="true"]');
-    expect(historico).toBeInTheDocument();
+    const historicoLink = screen.getByRole("link", { name: /histórico/i });
+    expect(historicoLink).toHaveAttribute("href", "/historico");
+    expect(historicoLink).not.toHaveAttribute("aria-current");
   });
 
   it("inclui o ThemeToggle (F5) reaproveitado, não recriado", () => {
@@ -25,18 +25,21 @@ describe("Sidebar", () => {
     expect(screen.getByRole("switch", { name: /modo escuro/i })).toBeInTheDocument();
   });
 
-  it("com active='historico' (uso futuro por F8), Dashboard deixa de ser a página atual", () => {
+  it("com active='historico', Dashboard deixa de ser a página atual e Histórico passa a ser", () => {
     render(<Sidebar active="historico" />);
 
     expect(screen.getByRole("link", { name: /dashboard/i })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: /histórico/i })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("visível só a partir do breakpoint md (hidden no mobile)", () => {
     render(<Sidebar active="dashboard" />);
 
-    expect(screen.getByRole("navigation", { name: /navegação principal/i }).closest("aside")).toHaveClass(
-      "hidden",
-      "md:flex",
-    );
+    expect(
+      screen.getByRole("navigation", { name: /navegação principal/i }).closest("aside"),
+    ).toHaveClass("hidden", "md:flex");
   });
 });

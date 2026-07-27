@@ -1,0 +1,96 @@
+# F7 (T7.3): compose de PRODUÇÃO — separado do `docker-compose.yml` de dev.
+# Diferenças principais em relação ao dev:
+#   - `target: runtime` fixo (não configurável por env `API_TARGET`/`WEB_TARGET`
+#     — em produção só faz sentido rodar a imagem final enxuta).
+#   - Sem bind mounts de código-fonte (`./api:/app`, `./web:/app`,
+#     `./db/migrations:/db/migrations`): produção roda 100% a partir do que
+#     foi copiado pra dentro da imagem no build (`api/Dockerfile`/`web/Dockerfile`,
+#     stage `runtime`), nunca do host.
+#   - `NODE_ENV=production` fixo (não `${NODE_ENV:-development}`).
+#
+# Uso: `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d`
+# (copie `.env.prod.example` para `.env.prod` e ajuste os segredos antes).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Sem `ports:` publicado no host de propósito (F7 T7.2, hardening): `api`
+    # e `web` já alcançam `db` pela rede interna do compose (hostname `db`),
+    # não há necessidade de expor o Postgres em 0.0.0.0 no host em produção
+    # (superfície de ataque desnecessária, protegida só pela senha do
+    # `.env.prod`). Acesso administrativo pontual: `docker compose -f
+    # docker-compose.prod.yml exec db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}`.
+    # Em dev, `docker-compose.yml` continua publicando normalmente.
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+      target: runtime
+    environment:
+      NODE_ENV: production
+      # Porta INTERNA do Fastify dentro do container: sempre fixa em 3000,
+      # NÃO `${API_PORT}`. `web/nginx.conf` tem `proxy_pass http://api:3000;`
+      # hardcoded (decisão D22 em `.specs/project/STATE.md` — porta interna da
+      # rede Docker é convenção fixa). `API_PORT` só controla a porta
+      # publicada no HOST (ver `ports:` abaixo) — se ele mudasse também a
+      # porta interna, o Nginx continuaria apontando pra `api:3000` e todo
+      # `/api/*` viraria 502 silencioso.
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      INGEST_API_KEY: ${INGEST_API_KEY}
+      MAX_BATCH: ${MAX_BATCH:-5000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+    ports:
+      # Host configurável via `API_PORT`, container sempre 3000 (ver comentário
+      # em `environment.PORT` acima).
+      - "${API_PORT:-3000}:3000"
+    # Sem bind mounts: a imagem `runtime` já embarca `dist/` (compilado no
+    # stage `build`), `node_modules` só de produção (stage `prod-deps`,
+    # `npm ci --omit=dev`) e `db/migrations` (COPY no Dockerfile) — migrations
+    # e seed da estação `main` rodam no boot via `src/server.ts`, antes de
+    # aceitar tráfego (idempotente, seguro em todo restart).
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # Porta interna fixa (3000), mesma razão do `environment.PORT` acima.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      target: runtime
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${WEB_PORT:-80}:80"
+    # Sem bind mounts: a imagem `runtime` serve os assets estáticos do build
+    # Vite via Nginx (`web/nginx.conf`, que também faz proxy de `/api/*` pro
+    # serviço `api` da rede Docker — ver comentário no próprio arquivo).
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db_data:

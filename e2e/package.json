@@ -1,0 +1,18 @@
+{
+  "name": "@estacao-meteorologica/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Suíte E2E Playwright (F7 T7.1) — fluxo crítico ingestão → dashboard, contra o docker compose completo (api + web + db).",
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^20.14.15",
+    "typescript": "^5.5.4"
+  }
+}

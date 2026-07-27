@@ -74,21 +74,21 @@ O dashboard mostra o "agora" e tendências agregadas, mas o usuário às vezes p
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| HIST-01 | P1: listagem por intervalo | Design | Pending |
-| HIST-02 | P1: paginação | Design | Pending |
-| HIST-03 | P1: célula nula = "—" | Design | Pending |
-| HIST-04 | P1: estado vazio | Design | Pending |
-| HIST-05 | P1: default últimas 24h | Design | Pending |
-| HIST-06 | P1: export CSV (intervalo inteiro) | Design | Pending |
-| HIST-07 | P1: export XLSX (intervalo inteiro) | Design | Pending |
-| HIST-08 | P1: timestamps UTC + nulos vazios no export | Design | Pending |
-| HIST-09 | P1: export por streaming | Design | Pending |
-| HIST-10 | Edge: validações de intervalo/format → 400 | Design | Pending |
+| HIST-01 | P1: listagem por intervalo | Done | Done |
+| HIST-02 | P1: paginação | Done | Done |
+| HIST-03 | P1: célula nula = "—" | Done | Done |
+| HIST-04 | P1: estado vazio | Done | Done |
+| HIST-05 | P1: default últimas 24h | Done | Done |
+| HIST-06 | P1: export CSV (intervalo inteiro) | Done | Done |
+| HIST-07 | P1: export XLSX (intervalo inteiro) | Done | Done |
+| HIST-08 | P1: timestamps UTC + nulos vazios no export | Done | Done |
+| HIST-09 | P1: export por streaming | Done | Done |
+| HIST-10 | Edge: validações de intervalo/format → 400 | Done | Done |
 
 ---
 
 ## Success Criteria
 
-- [ ] Listagem paginada correta e rápida (usa índice de F2).
-- [ ] CSV e XLSX abrem corretamente e refletem exatamente o intervalo filtrado.
-- [ ] Testes de integração (endpoints) + componente (página) ≥80%; E2E do export em F7.
+- [x] Listagem paginada correta e rápida (usa índice de F2).
+- [x] CSV e XLSX abrem corretamente e refletem exatamente o intervalo filtrado.
+- [x] Testes de integração (endpoints) + componente (página) ≥80%; E2E do export em F7.

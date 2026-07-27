@@ -33,11 +33,18 @@ RUN npm ci --omit=dev
 FROM node:20-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY api/package*.json ./
+COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --chown=node:node api/package*.json ./
 # F2 (T2.4): mesma lógica do stage `dev` — migrations disponíveis em /db
 # para o boot da api rodar `runMigrations`/`seedMainStation` automaticamente.
-COPY db/migrations /db/migrations
+COPY --chown=node:node db/migrations /db/migrations
 EXPOSE 3000
+# F7 (revisão de código): `node:20-alpine` já traz o usuário não-privilegiado
+# `node` (uid 1000) pronto pra uso — sem `USER node`, o processo roda como
+# root dentro do container à toa (a api não abre porta privilegiada; `PORT`
+# default 3000 já é >1024). `--chown=node:node` em cada `COPY` acima garante
+# que `node_modules`/`dist`/`package*.json`/`/db/migrations` sejam donos do
+# usuário antes da troca, para não quebrar leitura/execução em runtime.
+USER node
 CMD ["node", "dist/server.js"]

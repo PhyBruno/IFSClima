@@ -1,7 +1,11 @@
+import fastifyHelmet from "@fastify/helmet";
+import fastifyRateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
-import { parseEnv } from "./config/env.js";
+import { parseEnv, parseRateLimitEnv } from "./config/env.js";
+import { createLoggerOptions } from "./config/logger.js";
 import { getDb } from "./db/client.js";
 import { healthRoute } from "./routes/health.js";
+import { historyRoute } from "./routes/history.js";
 import { ingestRoute } from "./routes/ingest.js";
 import { readingsRoute } from "./routes/readings.js";
 import {
@@ -9,6 +13,7 @@ import {
   type ReadingRepository,
 } from "./repositories/reading-repository.js";
 import { MAX_BATCH as SCHEMA_MAX_BATCH } from "./schemas/ingest.js";
+import { createHistoryService, type HistoryService } from "./services/history-service.js";
 import { createIngestService } from "./services/ingest-service.js";
 import { createReadingsService } from "./services/readings-service.js";
 
@@ -22,6 +27,17 @@ export interface BuildAppOptions {
   ingestApiKey?: string;
   /** F3: teto de itens por lote para a resposta 413 (ING-08). Default: env `MAX_BATCH`, nunca acima do teto do schema Zod. */
   maxBatch?: number;
+  /** F8: injeção de dependência do serviço de histórico/export (fake em teste). */
+  historyService?: HistoryService;
+  /** T7.2 (QA-09): injeção da checagem de conectividade de `/health` (fake em teste). Default: `SELECT 1` real via `getDb()`. */
+  checkDb?: () => Promise<void>;
+  /**
+   * T7.2 (QA-07): limite de rate limiting aplicado a `POST /api/v1/ingest`
+   * (o endpoint mais sensível a abuso — recebe lotes). Default: env
+   * `RATE_LIMIT_MAX`/`RATE_LIMIT_WINDOW_MS` (100 req/min). Testes usam um
+   * `max` baixo para forçar `429` sem precisar de centenas de requisições.
+   */
+  rateLimit?: { max: number; timeWindow: number };
 }
 
 /**
@@ -42,6 +58,8 @@ function lazyDrizzleReadingRepository(): ReadingRepository {
     findLatest: (stationId) => resolve().findLatest(stationId),
     aggregate: (stationId, metric, since, bucketUnit) =>
       resolve().aggregate(stationId, metric, since, bucketUnit),
+    findRange: (params) => resolve().findRange(params),
+    streamRange: (stationId, from, to, order) => resolve().streamRange(stationId, from, to, order),
   };
 }
 
@@ -57,12 +75,27 @@ function lazyDrizzleReadingRepository(): ReadingRepository {
  */
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({
-    logger: true,
+    logger: createLoggerOptions(),
+    // F7 (revisão de código): sem `trustProxy`, `request.ip` é sempre o IP
+    // de quem fala TCP direto com o processo Fastify — em produção, isso é
+    // o container do Nginx (`web/nginx.conf` faz `proxy_pass` pra
+    // `api:3000`), nunca o cliente real. Como `@fastify/rate-limit` usa
+    // `request.ip` como chave por padrão, sem isso TODOS os clientes atrás
+    // do Nginx colapsariam num único balde de rate limit em
+    // `POST /api/v1/ingest` — um cliente abusivo derrubaria (429) a estação
+    // legítima. `trustProxy: true` faz o Fastify interpretar nativamente
+    // `X-Forwarded-For`/`X-Real-IP` como a origem real. Isso é seguro aqui
+    // porque a api só é alcançada via a rede Docker interna (dev) ou atrás
+    // do Nginx que este mesmo projeto controla (prod, `web/nginx.conf`) —
+    // não existe um proxy de terceiro não confiável na frente que poderia
+    // forjar esses headers livremente antes de chegar na api.
+    trustProxy: true,
   });
 
   const readingRepository = options.readingRepository ?? lazyDrizzleReadingRepository();
   const ingestService = createIngestService(readingRepository);
   const readingsService = createReadingsService(readingRepository);
+  const historyService = options.historyService ?? createHistoryService(readingRepository);
 
   const getIngestApiKey =
     options.ingestApiKey !== undefined
@@ -74,9 +107,31 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       ? () => options.maxBatch as number
       : () => Math.min(parseEnv().MAX_BATCH, SCHEMA_MAX_BATCH);
 
-  app.register(healthRoute);
-  app.register(ingestRoute, { ingestService, getIngestApiKey, getMaxBatch });
+  // T7.2 (QA-07): resolvido no registro (não por requisição) porque
+  // `@fastify/rate-limit` precisa do `max`/`timeWindow` na configuração da
+  // rota — `parseRateLimitEnv()` nunca lança por falta de
+  // DATABASE_URL/INGEST_API_KEY (schema próprio, todo com default), então
+  // isso não quebra `buildApp()` chamado sem env (F1).
+  const rateLimit =
+    options.rateLimit ??
+    (() => {
+      const env = parseRateLimitEnv();
+      return { max: env.RATE_LIMIT_MAX, timeWindow: env.RATE_LIMIT_WINDOW_MS };
+    })();
+
+  // T7.2 (QA-08): helmet global — headers de segurança em toda resposta.
+  app.register(fastifyHelmet);
+  // T7.2 (QA-07): registrado com `global: false` — não limita nenhuma rota
+  // por padrão (não pode quebrar o polling do dashboard em F4/F6:
+  // `GET /readings/latest` a cada 60s, `GET /readings/series`, nem
+  // paginação de histórico). Só a ingestão opta-in via `config.rateLimit`
+  // na própria rota (ver `routes/ingest.ts`).
+  app.register(fastifyRateLimit, { global: false });
+
+  app.register(healthRoute, { checkDb: options.checkDb });
+  app.register(ingestRoute, { ingestService, getIngestApiKey, getMaxBatch, rateLimit });
   app.register(readingsRoute, { readingsService, stationId: DEFAULT_STATION_ID });
+  app.register(historyRoute, { historyService, stationId: DEFAULT_STATION_ID });
 
   return app;
 }

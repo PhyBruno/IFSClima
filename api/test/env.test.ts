@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEnv } from "../src/config/env.js";
+import { parseEnv, parseLoggerEnv, parseRateLimitEnv } from "../src/config/env.js";
 
 const validEnv = {
   NODE_ENV: "test",
@@ -18,16 +18,22 @@ describe("parseEnv", () => {
       DATABASE_URL: "postgres://estacao:senha_exemplo@localhost:5432/estacao_meteorologica",
       INGEST_API_KEY: "whs_test_ABC123",
       MAX_BATCH: 5000,
+      RATE_LIMIT_MAX: 100,
+      RATE_LIMIT_WINDOW_MS: 60_000,
+      LOG_LEVEL: "info",
     });
   });
 
-  it("aplica defaults para NODE_ENV, PORT e MAX_BATCH quando ausentes", () => {
+  it("aplica defaults para NODE_ENV, PORT, MAX_BATCH, rate limit e LOG_LEVEL quando ausentes", () => {
     const { DATABASE_URL, INGEST_API_KEY } = validEnv;
     const env = parseEnv({ DATABASE_URL, INGEST_API_KEY });
 
     expect(env.NODE_ENV).toBe("development");
     expect(env.PORT).toBe(3000);
     expect(env.MAX_BATCH).toBe(5000);
+    expect(env.RATE_LIMIT_MAX).toBe(100);
+    expect(env.RATE_LIMIT_WINDOW_MS).toBe(60_000);
+    expect(env.LOG_LEVEL).toBe("info");
   });
 
   it("lança erro com mensagem clara quando falta variável obrigatória (DATABASE_URL)", () => {
@@ -56,5 +62,57 @@ describe("parseEnv", () => {
 
   it("lança erro quando MAX_BATCH não é numérico", () => {
     expect(() => parseEnv({ ...validEnv, MAX_BATCH: "not-a-number" })).toThrow();
+  });
+
+  it("aceita RATE_LIMIT_MAX/RATE_LIMIT_WINDOW_MS explícitos e converte para number", () => {
+    const env = parseEnv({ ...validEnv, RATE_LIMIT_MAX: "10", RATE_LIMIT_WINDOW_MS: "1000" });
+
+    expect(env.RATE_LIMIT_MAX).toBe(10);
+    expect(env.RATE_LIMIT_WINDOW_MS).toBe(1000);
+  });
+
+  it("lança erro quando RATE_LIMIT_MAX não é numérico", () => {
+    expect(() => parseEnv({ ...validEnv, RATE_LIMIT_MAX: "not-a-number" })).toThrow();
+  });
+});
+
+describe("parseRateLimitEnv (T7.2 — QA-07)", () => {
+  it("aplica defaults (100 req / 60000ms) quando nenhuma variável está presente, sem exigir DATABASE_URL/INGEST_API_KEY", () => {
+    const config = parseRateLimitEnv({});
+
+    expect(config).toEqual({ RATE_LIMIT_MAX: 100, RATE_LIMIT_WINDOW_MS: 60_000 });
+  });
+
+  it("aceita overrides explícitos", () => {
+    const config = parseRateLimitEnv({ RATE_LIMIT_MAX: "5", RATE_LIMIT_WINDOW_MS: "2000" });
+
+    expect(config).toEqual({ RATE_LIMIT_MAX: 5, RATE_LIMIT_WINDOW_MS: 2000 });
+  });
+
+  it("lança erro com mensagem clara quando RATE_LIMIT_MAX é inválido", () => {
+    expect(() => parseRateLimitEnv({ RATE_LIMIT_MAX: "not-a-number" })).toThrowError(
+      /RATE_LIMIT_MAX/,
+    );
+  });
+});
+
+describe("parseLoggerEnv (F7 — achado de revisão)", () => {
+  it("aplica default 'info' quando LOG_LEVEL está ausente, sem exigir DATABASE_URL/INGEST_API_KEY", () => {
+    const config = parseLoggerEnv({});
+
+    expect(config).toEqual({ LOG_LEVEL: "info" });
+  });
+
+  it.each(["trace", "debug", "info", "warn", "error", "fatal", "silent"] as const)(
+    "aceita o nível válido do pino '%s'",
+    (level) => {
+      const config = parseLoggerEnv({ LOG_LEVEL: level });
+
+      expect(config.LOG_LEVEL).toBe(level);
+    },
+  );
+
+  it("lança erro com mensagem clara quando LOG_LEVEL não é um nível válido do pino", () => {
+    expect(() => parseLoggerEnv({ LOG_LEVEL: "verbose" })).toThrowError(/LOG_LEVEL/);
   });
 });

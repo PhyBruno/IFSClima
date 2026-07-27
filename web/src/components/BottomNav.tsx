@@ -2,10 +2,11 @@ import { DASHBOARD_NAV_ICON, HISTORICO_NAV_ICON, type DashboardRoute } from "./S
 
 /**
  * `BottomNav` (F6 T6.5 — docs/design-extraction.md §5.5) — navegação fixa do
- * mobile (`md:hidden`; ver `Sidebar` para o equivalente desktop). Mesmas
- * decisões de `Sidebar`: "Histórico" (F8) desabilitado/sem link, e nenhum
- * indicador de conexão aqui (vive numa notificação flutuante própria, ver
- * `DashboardPage`).
+ * mobile (`md:hidden`; ver `Sidebar` para o equivalente desktop). Mesma
+ * decisão de `Sidebar`: "Histórico" (F8 T8.6) agora é um link real para
+ * `/historico`, com o mesmo tratamento de `aria-current`/estado ativo de
+ * "Dashboard"; nenhum indicador de conexão aqui (vive numa notificação
+ * flutuante própria, ver `DashboardPage`).
  *
  * `position: fixed` no rodapé — o chamador (`DashboardPage`) precisa reservar
  * espaço (`padding-bottom`) no conteúdo pra não ficar coberto por esta barra
@@ -34,13 +35,16 @@ export function BottomNav({ active, className = "" }: BottomNavProps) {
         {DASHBOARD_NAV_ICON}
         Dashboard
       </a>
-      <span
-        aria-disabled="true"
-        className="flex flex-1 flex-col items-center gap-0.5 rounded-10 py-1.5 text-[11px] font-medium text-text-disabled"
+      <a
+        href="/historico"
+        aria-current={active === "historico" ? "page" : undefined}
+        className={`flex flex-1 flex-col items-center gap-0.5 rounded-10 py-1.5 text-[11px] font-medium ${
+          active === "historico" ? "text-nav-active-text" : "text-text-tertiary"
+        }`}
       >
         {HISTORICO_NAV_ICON}
         Histórico
-      </span>
+      </a>
     </nav>
   );
 }

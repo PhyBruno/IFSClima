@@ -6,15 +6,33 @@ export type DashboardRoute = "dashboard" | "historico";
 /** Ícone genérico de navegação (não é um sensor — não depende do inventário não extraído em T5.1/T5.1b). */
 export const DASHBOARD_NAV_ICON: ReactNode = (
   <svg viewBox="0 0 24 24" width={18} height={18} fill="none" aria-hidden="true">
-    <path d="M4 12 12 4l8 8" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M6 10v9h12v-9" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M4 12 12 4l8 8"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M6 10v9h12v-9"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
 export const HISTORICO_NAV_ICON: ReactNode = (
   <svg viewBox="0 0 24 24" width={18} height={18} fill="none" aria-hidden="true">
     <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={2} />
-    <path d="M12 8v4l3 2" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M12 8v4l3 2"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
@@ -26,11 +44,12 @@ export const HISTORICO_NAV_ICON: ReactNode = (
  * dashboard (F6)" como dependência, então esta é a peça que faltava, não uma
  * feature nova de F8.
  *
- * **"Histórico" desabilitado.** F8 (`.specs/features/f8-history-export`)
- * ainda não tem página implementada — o item aparece (fidelidade ao design,
- * usuário quer VER a navegação) mas não é um link real (`aria-disabled`, sem
- * `href`), pra não apontar pra uma rota que só re-renderiza o dashboard (não
- * há router de verdade, ver `main.tsx`) nem parecer quebrado.
+ * **"Histórico" agora é um link real (F8 T8.6).** Até T8.5, F8 ainda não
+ * tinha página implementada, então o item aparecia desabilitado
+ * (`aria-disabled`, sem `href`) só por fidelidade ao design. `/historico`
+ * agora existe de verdade (`pages/HistoryPage.tsx`, roteada em `main.tsx`),
+ * então este link segue o MESMO tratamento de `aria-current`/estado ativo já
+ * usado por "Dashboard" — nenhum destino novo criado aqui, só destravado.
  *
  * **Sem painel de status aqui.** O design original (§5.4) tem um card
  * "Online" sempre visível no rodapé da sidebar — omitido de propósito: o
@@ -81,14 +100,18 @@ export function Sidebar({ active, className = "" }: SidebarProps) {
           {DASHBOARD_NAV_ICON}
           Dashboard
         </a>
-        <span
-          aria-disabled="true"
-          className="flex items-center gap-2 rounded-10 px-3 py-2 text-sm font-medium text-text-disabled"
+        <a
+          href="/historico"
+          aria-current={active === "historico" ? "page" : undefined}
+          className={`flex items-center gap-2 rounded-10 px-3 py-2 text-sm font-medium transition-colors ${
+            active === "historico"
+              ? "bg-nav-active-bg text-nav-active-text"
+              : "text-text-tertiary hover:text-text-primary"
+          }`}
         >
           {HISTORICO_NAV_ICON}
           Histórico
-          <span className="ml-auto text-[10px] font-semibold uppercase text-text-faint">Em breve</span>
-        </span>
+        </a>
       </nav>
 
       <div className="mt-auto flex items-center justify-between gap-2 text-xs text-text-tertiary">

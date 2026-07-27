@@ -49,7 +49,9 @@ describe("DashboardPage", () => {
   it("UI-01: exibe o título da página em um heading h1", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { level: 1, name: /painel de monitoramento/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /painel de monitoramento/i }),
+    ).toBeInTheDocument();
   });
 
   it("subtítulo do header explica a diferença entre leitura mais recente (sensores) e média histórica (gráficos)", () => {
@@ -74,8 +76,10 @@ describe("DashboardPage", () => {
     const dashboardLinks = screen.getAllByRole("link", { name: /dashboard/i });
     expect(dashboardLinks).toHaveLength(2); // Sidebar + BottomNav
     dashboardLinks.forEach((link) => expect(link).toHaveAttribute("aria-current", "page"));
-    // "Histórico" (F8) aparece nos dois, mas desabilitado — nenhum link real.
-    expect(screen.queryAllByRole("link", { name: /histórico/i })).toHaveLength(0);
+    // "Histórico" (F8 T8.6) já é um link real nos dois, mas não é a página atual aqui.
+    const historicoLinks = screen.getAllByRole("link", { name: /histórico/i });
+    expect(historicoLinks).toHaveLength(2);
+    historicoLinks.forEach((link) => expect(link).not.toHaveAttribute("aria-current"));
   });
 
   it("status: leitura recente (< 24h) não mostra nenhuma notificação de offline", async () => {
@@ -149,7 +153,9 @@ describe("DashboardPage", () => {
 
     renderPage();
 
-    expect(screen.getByRole("heading", { level: 1, name: /painel de monitoramento/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /painel de monitoramento/i }),
+    ).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
     expect(screen.getAllByText("Sem sinal")).toHaveLength(5);
   });
@@ -177,7 +183,9 @@ describe("DashboardPage", () => {
       renderPage();
 
       await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
-      const grid = screen.getAllByTestId("statcard")[0]!.closest<HTMLElement>("div.flex.flex-col.gap-2")!;
+      const grid = screen
+        .getAllByTestId("statcard")[0]!
+        .closest<HTMLElement>("div.flex.flex-col.gap-2")!;
       expect(within(grid).queryByText(/^atualizado/i)).not.toBeInTheDocument();
     });
 
