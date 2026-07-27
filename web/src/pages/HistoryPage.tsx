@@ -123,7 +123,7 @@ export function HistoryPage() {
     <div className="flex min-h-screen bg-surface-page text-text-primary">
       <Sidebar active="historico" />
 
-      <main className="flex-1 px-4 pb-32 pt-6 md:px-8 md:pb-8 md:pt-8">
+      <main className="flex-1 px-4 pb-32 pt-6 md:pb-8 md:pl-[calc(14rem+2rem)] md:pr-8 md:pt-8">
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
           <header className="flex flex-col gap-1">
             <h1 className="text-xl font-bold md:text-2xl">Histórico</h1>

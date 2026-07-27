@@ -1,11 +1,23 @@
+import { useEffect, useState } from "react";
 import { useLatest } from "../hooks/useLatest";
 import { StatusPill } from "../components/StatusPill";
 import { Sidebar } from "../components/Sidebar";
 import { BottomNav } from "../components/BottomNav";
 import { SensorGrid } from "../components/SensorGrid";
 import { ChartsSection } from "../components/ChartsSection";
-import { formatTime } from "../utils/formatTime";
+import { formatTime, formatDayMonth } from "../utils/formatTime";
 import { formatAge } from "../utils/formatAge";
+
+/**
+ * Notificação de offline é uma notificação de ENTRADA na página, não um
+ * painel de status permanente (feedback do usuário, 2026-07-27): fica
+ * visível por até 60s a partir do carregamento/entrada na página e some
+ * sozinha depois disso, mesmo que a estação continue offline — evita o card
+ * "grudado" no canto da tela indefinidamente. Reaparece só numa nova
+ * entrada/reload (o timer é por montagem do componente, não por reavaliação
+ * do estado offline).
+ */
+const OFFLINE_INDICATOR_VISIBLE_MS = 60_000;
 
 /**
  * Estação é considerada "offline" só sem conexão nas ÚLTIMAS 24H (regra do
@@ -68,10 +80,20 @@ const STATION_OFFLINE_THRESHOLD_SECONDS = 24 * 60 * 60;
 export function DashboardPage() {
   const { data, isPending } = useLatest();
 
+  const [indicatorTimedOut, setIndicatorTimedOut] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setIndicatorTimedOut(true), OFFLINE_INDICATOR_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
   const neverReported = Boolean(data) && data?.timestamp === null;
   const isStale = data?.age_seconds != null && data.age_seconds > STATION_OFFLINE_THRESHOLD_SECONDS;
-  const showOfflineIndicator = !isPending && Boolean(data) && (neverReported || isStale);
+  const showOfflineIndicator =
+    !indicatorTimedOut && !isPending && Boolean(data) && (neverReported || isStale);
   const ageText = data && data.timestamp !== null ? `Atualizado ${formatAge(data.age_seconds)}` : null;
+  const lastReadingLabel = data?.timestamp
+    ? `${formatDayMonth(data.timestamp)} ${formatTime(data.timestamp)}`
+    : undefined;
 
   return (
     <div className="flex min-h-screen bg-surface-page text-text-primary">
@@ -79,11 +101,7 @@ export function DashboardPage() {
 
       {showOfflineIndicator && (
         <div role="status" aria-live="polite" className="fixed right-4 top-4 z-50">
-          <StatusPill
-            variant="card"
-            online={false}
-            lastReadingAt={data?.timestamp ? formatTime(data.timestamp) : undefined}
-          />
+          <StatusPill variant="card" online={false} lastReadingAt={lastReadingLabel} />
         </div>
       )}
 
@@ -91,7 +109,7 @@ export function DashboardPage() {
           ficar coberto pela `BottomNav` fixa (~48px de altura) — margem
           generosa de sobra, não só o mínimo. Sem padding extra a partir de
           md: (BottomNav some, vira Sidebar). */}
-      <main className="flex-1 px-4 pb-32 pt-6 md:px-8 md:pb-8 md:pt-8">
+      <main className="flex-1 px-4 pb-32 pt-6 md:pb-8 md:pl-[calc(14rem+2rem)] md:pr-8 md:pt-8">
         {/* max-w-5xl (1024px) sobrava espaço vazio óbvio em desktops largos
             (feedback do usuário, 2026-07-24) — 1600px aproveita a largura
             real ao lado da Sidebar sem esticar demais em ultrawide. */}

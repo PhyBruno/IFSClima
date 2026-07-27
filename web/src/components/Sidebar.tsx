@@ -66,7 +66,15 @@ export interface SidebarProps {
 export function Sidebar({ active, className = "" }: SidebarProps) {
   return (
     <aside
-      className={`hidden shrink-0 flex-col gap-6 border-r border-border-default bg-surface-sidebar p-4 md:flex md:w-56 ${className}`.trim()}
+      // md:fixed (feedback do usuário, 2026-07-27): antes a sidebar era só
+      // um item flex normal, então crescia junto com o conteúdo da página —
+      // em telas mais baixas, o botão de tema (`mt-auto`, fim da sidebar)
+      // ficava abaixo da dobra e exigia scroll pra alcançar. Fixa na
+      // viewport (`inset-y-0 left-0`) e com scroll próprio
+      // (`overflow-y-auto`) resolve sem depender da altura do conteúdo ao
+      // lado; `DashboardPage`/`HistoryPage` reservam espaço no `main` pra
+      // compensar o que a sidebar deixa de ocupar no fluxo normal.
+      className={`hidden shrink-0 flex-col gap-6 border-r border-border-default bg-surface-sidebar p-4 md:flex md:fixed md:inset-y-0 md:left-0 md:w-56 md:overflow-y-auto ${className}`.trim()}
     >
       <div className="flex items-center gap-2 text-sm font-bold text-text-primary">
         <span
