@@ -25,7 +25,17 @@ services:
     # docker-compose.prod.yml exec db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}`.
     # Em dev, `docker-compose.yml` continua publicando normalmente.
     volumes:
-      - db_data:/var/lib/postgresql/data
+      # `db_data_prod` (não `db_data`): nome próprio, diferente do volume do
+      # `docker-compose.yml` de dev. Achado ao investigar
+      # "password authentication failed for user" no primeiro rebuild local
+      # (2026-07-27) — os dois compose files rodam no MESMO projeto Compose
+      # (nome da pasta), então um volume `db_data` compartilhado entre
+      # dev/prod ficava com a senha da inicialização mais antiga do Postgres
+      # (só aplicada uma vez, no primeiro boot do volume) — qualquer
+      # `.env`/`.env.prod` com senha diferente depois disso quebrava o
+      # healthcheck do `api`. Volumes com nomes distintos eliminam esse
+      # drift de vez.
+      - db_data_prod:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -35,6 +45,12 @@ services:
     restart: unless-stopped
 
   api:
+    # `image:` junto de `build:` (suportado pelo Compose): a versão buildada
+    # localmente fica marcada com esta tag, então `.scripts/rebuild-local.ps1`
+    # consegue versionar incrementalmente SEM precisar de `docker run` manual
+    # (ao contrário de C:\CentriumIA\scripts\rebuild-local.ps1) — o próprio
+    # `docker compose up -d --build` já builda e marca a imagem certa.
+    image: ${API_IMAGE:-estacaometeorologica-api:local}
     build:
       context: .
       dockerfile: api/Dockerfile
@@ -76,6 +92,8 @@ services:
     restart: unless-stopped
 
   web:
+    # Ver comentário equivalente no serviço `api` acima.
+    image: ${WEB_IMAGE:-estacaometeorologica-web:local}
     build:
       context: .
       dockerfile: web/Dockerfile
@@ -93,4 +111,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  db_data:
+  db_data_prod:
