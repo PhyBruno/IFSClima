@@ -1,0 +1,132 @@
+# Compose de PRODUÇÃO para `docker stack deploy` (Docker Swarm), com o `web`
+# exposto publicamente via Traefik (rede overlay externa `network_public`,
+# já provisionada no swarm) na URL `teste.centrium.api.br`.
+#
+# Diferente de `docker-compose.prod.yml` (que builda localmente via
+# `build:`/`docker compose up`), este arquivo só consome as imagens já
+# publicadas no Docker Hub (`justbrunasso/ifsclima:api-1.0` /
+# `:web-1.0`, geradas por `.scripts/docker-publish.ps1`) — é o arquivo que
+# roda no manager do swarm remoto, sem precisar do código-fonte no host.
+#
+# `api` e `db` ficam só na rede `internal` (sem `ports:` publicado, mesma
+# postura de hardening do `docker-compose.prod.yml`): quem recebe tráfego
+# externo é só o `web` (Nginx), que já faz proxy de `/api/*` para `api:3000`
+# dentro da rede interna (ver `web/nginx.conf`).
+#
+# Uso:
+#   1. `cp .env.swarm.example .env.swarm` e ajuste os segredos.
+#   2. Exporte as variáveis no shell do manager antes do deploy (o
+#      `docker stack deploy` não tem `--env-file` em todas as versões do
+#      Docker CLI — exportar é o jeito garantido de funcionar em qualquer
+#      versão): `set -a; source .env.swarm; set +a` (bash) ou equivalente.
+#   3. `docker stack deploy -c docker-compose.swarm.yml ifsclima`
+version: "3.7"
+
+services:
+  db:
+    image: postgres:16-alpine
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db_data_swarm:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    deploy:
+      mode: replicated
+      replicas: 1
+      # Fixo no manager: o volume `db_data_swarm` é local ao nó onde o
+      # container roda — sem esta constraint, o Swarm poderia reagendar o
+      # `db` para outro nó em um redeploy e "perder" os dados (na prática,
+      # criaria um volume novo vazio nesse outro nó).
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+      restart_policy:
+        condition: on-failure
+
+  api:
+    image: justbrunasso/ifsclima:api-1.0
+    networks:
+      - internal
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      INGEST_API_KEY: ${INGEST_API_KEY}
+      MAX_BATCH: ${MAX_BATCH:-5000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+
+  web:
+    image: justbrunasso/ifsclima:web-1.0
+    networks:
+      - network_public
+      - internal
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.ifsclima.rule=Host(`teste.centrium.api.br`)"
+        - "traefik.http.routers.ifsclima.entrypoints=websecure"
+        - "traefik.http.routers.ifsclima.tls=true"
+        - "traefik.http.routers.ifsclima.tls.certresolver=letsencryptresolver"
+        - "traefik.http.services.ifsclima.loadbalancer.server.port=80"
+        - "traefik.http.middlewares.ifsclima-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+        - "traefik.http.middlewares.ifsclima-headers.headers.customrequestheaders.X-Forwarded-Port=443"
+        - "traefik.http.middlewares.ifsclima-headers.headers.customrequestheaders.X-Forwarded-Host=teste.centrium.api.br"
+        - "traefik.http.routers.ifsclima.middlewares=ifsclima-headers"
+      restart_policy:
+        condition: on-failure
+
+networks:
+  network_public:
+    external: true
+    name: network_public
+  # Overlay interna (não publicada no `network_public`): só `api`, `db` e
+  # `web` se enxergam por aqui. `internal: true` bloqueia inclusive saída
+  # para a internet a partir desta rede — nem `api` nem `db` precisam disso.
+  internal:
+    driver: overlay
+    internal: true
+
+volumes:
+  db_data_swarm:
