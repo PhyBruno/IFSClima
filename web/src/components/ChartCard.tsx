@@ -292,10 +292,47 @@ function LineChart({ series, pointLabels, unit, onHover }: LineChartProps) {
       data-testid="chart-svg"
     >
       {series.map((s, seriesIndex) => {
-        // Menos de 2 pontos: não dá pra desenhar uma linha, pula esta série
-        // (sem crash), igual à regra do sparkline do StatCard.
-        if (s.points.length < 2) {
+        if (s.points.length === 0) {
           return null;
+        }
+
+        // Exatamente 1 ponto: não dá pra desenhar uma LINHA (precisa de 2+),
+        // mas o dado é real e não pode ficar invisível (bug real: estação
+        // nova com só 1 dia de histórico ficava com o card em branco, sem
+        // nenhuma indicação de que havia leitura). Marcador centralizado e
+        // SEMPRE visível (diferente do marcador multi-ponto, que só aparece
+        // em hover/foco — aqui não há polyline nenhuma pra sinalizar "há
+        // dado aqui", então o ponto precisa se anunciar sozinho).
+        if (s.points.length === 1) {
+          const value = s.points[0]!;
+          const x = VIEWBOX_WIDTH / 2;
+          const y = VIEWBOX_HEIGHT / 2;
+          const label = pointLabels?.[0];
+          const pointUnit = seriesUnit(s, unit);
+          const text = tooltipText(label, value, pointUnit);
+
+          const activateSingle = () => onHover({ xPercent: x, yPercent: (y / VIEWBOX_HEIGHT) * 100, text });
+          const deactivateSingle = () => onHover(null);
+
+          return (
+            <g key={s.label}>
+              <circle cx={x} cy={y} r={1.7} fill={s.color} aria-hidden="true" />
+              <circle
+                cx={x}
+                cy={y}
+                r={3.5}
+                fill="transparent"
+                tabIndex={0}
+                data-testid="chart-point-hit"
+                aria-label={text}
+                onMouseEnter={activateSingle}
+                onMouseLeave={deactivateSingle}
+                onFocus={activateSingle}
+                onBlur={deactivateSingle}
+                onClick={activateSingle}
+              />
+            </g>
+          );
         }
 
         const min = Math.min(...s.points);

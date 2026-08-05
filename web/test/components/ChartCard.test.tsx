@@ -88,6 +88,28 @@ describe("ChartCard", () => {
       expect(svg.querySelectorAll("polyline")).toHaveLength(1);
     });
 
+    it("série com exatamente 1 ponto desenha um marcador visível em vez de sumir (bug real: estação nova com só 1 dia de dado ficava com o card em branco)", () => {
+      render(
+        <ChartCard
+          title="Temperatura"
+          variant="line"
+          unit="°C"
+          series={[{ label: "Temperatura", color: "#f97316", points: [24.65] }]}
+          pointLabels={["04/08"]}
+        />,
+      );
+
+      const svg = screen.getByTestId("chart-svg");
+      // Não há como desenhar uma linha com 1 ponto só, mas o dado não pode
+      // ficar totalmente invisível (sem polyline, sem marcador, sem nada).
+      expect(svg.querySelector("polyline")).not.toBeInTheDocument();
+      expect(svg.querySelectorAll("circle").length).toBeGreaterThan(0);
+
+      const hitTarget = screen.getByTestId("chart-point-hit");
+      fireEvent.mouseEnter(hitTarget);
+      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("04/08 — 24.7°C");
+    });
+
     it("série constante (min===max) não quebra o cálculo da polyline", () => {
       render(
         <ChartCard

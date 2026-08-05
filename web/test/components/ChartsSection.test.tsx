@@ -115,6 +115,26 @@ describe("funções puras de ChartsSection", () => {
       expect(buildXLabels(dayResponse)).toEqual(["01/07", "20/07"]);
     });
 
+    it("bucket='day' mantém o dia UTC do bucket mesmo com o processo em fuso local negativo (regressão: chuva em 30d aparecia com data D-1)", () => {
+      // date_trunc('day', ...) roda em UTC (api/src/db/client.ts força
+      // timezone=UTC na sessão) — o bucket abaixo é meia-noite UTC de 04/08,
+      // que em fuso local UTC-3 seria 03/08 21:00 se reinterpretado. O rótulo
+      // deve continuar "04/08": o bucket já É o dia calendário UTC.
+      const previousTZ = process.env.TZ;
+      process.env.TZ = "America/Sao_Paulo";
+      try {
+        const dayResponse = {
+          ...seriesFixture,
+          bucket: "day" as const,
+          buckets: [{ t: "2026-08-04T00:00:00.000Z", avg: 24.65, min: 23.9, max: 25.1, sum: null }],
+        };
+
+        expect(buildXLabels(dayResponse)).toEqual(["04/08"]);
+      } finally {
+        process.env.TZ = previousTZ;
+      }
+    });
+
     it("range='7d' (feedback do usuário, 2026-07-24): um marcador por dia, não só primeiro/último bucket", () => {
       // 7d é bucket='hour' na API (RANGE_CONFIG, api/src/services/readings-service.ts)
       // — 3 dias distintos aqui, 2 buckets/dia, pra provar que dedupa por dia.

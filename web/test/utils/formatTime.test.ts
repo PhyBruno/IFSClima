@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { formatDayMonth, formatTime } from "../../src/utils/formatTime";
+import { formatDayMonth, formatDayMonthUTC, formatTime } from "../../src/utils/formatTime";
 
 /**
  * `formatTime`/`formatDayMonth` (F6 T6.4 — design.md "Formatação": util
@@ -50,5 +50,42 @@ describe("formatDayMonth", () => {
 
   it("string inválida não lança — cai no placeholder", () => {
     expect(formatDayMonth("não é uma data")).toBe("--/--");
+  });
+});
+
+/**
+ * `formatDayMonthUTC` — usada só para buckets de granularidade "day"
+ * (`range=30d`, `date_trunc('day', ...)` calculado em UTC pela sessão do
+ * Postgres — `api/src/db/client.ts`). Diferente de `formatDayMonth`, NÃO
+ * reinterpreta o instante no fuso local: o bucket já representa um DIA
+ * CALENDÁRIO UTC, não um instante para relocalizar. Bug real corrigido aqui:
+ * meia-noite UTC de um dia, formatada com `Date#getDate()` (fuso local) num
+ * fuso negativo (ex. Brasil, UTC-3), cai no dia ANTERIOR local — daí o teste
+ * abaixo forçar TZ diferente de UTC, de propósito, para expor exatamente
+ * esse desalinhamento.
+ */
+describe("formatDayMonthUTC", () => {
+  let originalTZ: string | undefined;
+  beforeAll(() => {
+    originalTZ = process.env.TZ;
+    process.env.TZ = "America/Sao_Paulo";
+  });
+  afterAll(() => {
+    process.env.TZ = originalTZ;
+  });
+
+  it("mantém o dia UTC do bucket mesmo com o processo rodando em fuso local negativo (UTC-3)", () => {
+    // Meia-noite UTC de 04/08 — em fuso local UTC-3 seria 03/08 21:00, mas o
+    // bucket representa o dia UTC 04/08 (date_trunc em UTC), não deve mudar.
+    expect(formatDayMonthUTC("2026-08-04T00:00:00.000Z")).toBe("04/08");
+  });
+
+  it("null/undefined retorna placeholder, sem lançar", () => {
+    expect(formatDayMonthUTC(null)).toBe("--/--");
+    expect(formatDayMonthUTC(undefined)).toBe("--/--");
+  });
+
+  it("string inválida não lança — cai no placeholder", () => {
+    expect(formatDayMonthUTC("não é uma data")).toBe("--/--");
   });
 });

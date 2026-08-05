@@ -6,7 +6,7 @@ import { Card } from "./Card";
 import { Skeleton } from "./Skeleton";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { seriesQueryOptions } from "../hooks/useSeries";
-import { formatTime, formatDayMonth } from "../utils/formatTime";
+import { formatTime, formatDayMonth, formatDayMonthUTC } from "../utils/formatTime";
 import type { BucketUnit, Metric, Range, SeriesBucket, SeriesResponse } from "../api-client";
 
 /**
@@ -100,7 +100,10 @@ export function buildSearchWithRange(search: string, range: Range): string {
  * `ConnectionBanner` (horário absoluto da última leitura conhecida).
  */
 function formatBucketLabel(t: string, unit: BucketUnit): string {
-  return unit === "hour" ? formatTime(t) : formatDayMonth(t);
+  // bucket="day" (range=30d) é date_trunc('day', ...) em UTC (api/src/db/client.ts
+  // força timezone=UTC) — usa formatDayMonthUTC (não reinterpreta no fuso
+  // local) para não desalinhar o dia em fusos negativos (ver formatTime.ts).
+  return unit === "hour" ? formatTime(t) : formatDayMonthUTC(t);
 }
 
 /**

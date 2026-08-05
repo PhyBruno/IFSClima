@@ -45,4 +45,19 @@ export function formatDayMonth(utc: string | null | undefined): string {
   return date ? `${pad(date.getDate())}/${pad(date.getMonth() + 1)}` : "--/--";
 }
 
+/**
+ * `utc` → `"DD/MM"` do dia UTC, SEM reinterpretar no fuso local — usada só
+ * para buckets de granularidade `"day"` (`range=30d`), onde `t` já é
+ * `date_trunc('day', ...)` calculado em UTC pela sessão do Postgres
+ * (`api/src/db/client.ts` força `timezone=UTC`). Diferente de `formatDayMonth`
+ * (que formata um INSTANTE no fuso do usuário, correto para timestamps de
+ * leitura/hora), aqui `utc` já É o dia calendário — reformatar com
+ * `Date#getDate()` (fuso local) desloca pro dia anterior em qualquer fuso
+ * negativo (ex. Brasil, UTC-3: meia-noite UTC vira 21h do dia anterior).
+ */
+export function formatDayMonthUTC(utc: string | null | undefined): string {
+  const date = parseValidDate(utc);
+  return date ? `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}` : "--/--";
+}
+
 export default formatTime;
