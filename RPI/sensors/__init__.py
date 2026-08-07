@@ -9,8 +9,11 @@
 # falhar ao carregar, ele é apenas ignorado (os demais continuam funcionando).
 #
 # Obs.: o rain_gauge configura sua interrupção JÁ no import (por isso precisa ser
-# importado no arranque). Isso é válido porque usamos lightsleep (o programa não
-# reinicia), então a IRQ permanece ativa contando as básculas.
+# importado no arranque). Em operação normal (lightsleep) o programa não reinicia,
+# então a IRQ permanece ativa contando as básculas. Em erro fatal, main.py ainda
+# pode chamar machine.reset() (apagando a RAM e o contador de básculas) — os pontos
+# de rede/flash mais propensos a falhar têm try/except para minimizar esse caminho,
+# mas não é uma garantia absoluta.
 
 SENSORES = []
 

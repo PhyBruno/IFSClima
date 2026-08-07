@@ -23,9 +23,16 @@ LEITURAS_POR_ENVIO = 4       # 4 x 15 min = 1 h -> tenta enviar tudo
 # False = time.sleep (debug via USB: REPL fica vivo; ainda conta chuva; ~20 mA)
 MODO_ECONOMIA = True
 
+# Quantas leituras vão em cada requisição POST. Envio em lotes evita montar
+# um payload gigante (e carregar o buffer inteiro na RAM) de uma vez só
+# quando a estação ficou muito tempo offline.
+TAMANHO_LOTE_ENVIO = 50
+
 # Trava opcional: nº máximo de leituras guardadas se a API ficar fora do ar
 # muito tempo (evita encher a flash). 0 = sem limite.
-MAX_LEITURAS_BUFFER = 500
+# 5000 leituras = ~52 dias offline (~900 KB em flash). Com envio em lotes
+# (TAMANHO_LOTE_ENVIO) isso não estoura a RAM, então dá pra manter alto.
+MAX_LEITURAS_BUFFER = 5000
 
 # ---------------- Identificação ----------------
 STATION_ID = "estacao-001"

@@ -14,15 +14,21 @@ except ImportError:
 
 def _conectar_wifi():
     wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if not wlan.isconnected():
-        wlan.connect(config.WIFI_SSID, config.WIFI_PASS)
-        limite = time.ticks_add(time.ticks_ms(), config.WIFI_TIMEOUT_S * 1000)
-        while not wlan.isconnected():
-            if time.ticks_diff(limite, time.ticks_ms()) <= 0:
-                return wlan, False
-            time.sleep_ms(200)
-    return wlan, True
+    try:
+        wlan.active(True)
+        if not wlan.isconnected():
+            wlan.connect(config.WIFI_SSID, config.WIFI_PASS)
+            limite = time.ticks_add(time.ticks_ms(), config.WIFI_TIMEOUT_S * 1000)
+            while not wlan.isconnected():
+                if time.ticks_diff(limite, time.ticks_ms()) <= 0:
+                    return wlan, False
+                time.sleep_ms(200)
+        return wlan, True
+    except Exception as e:
+        # ex.: "OSError: Wifi Internal Error" do CYW43 — não pode escapar e
+        # derrubar o laço principal (perderia _tips ao resetar)
+        print("Falha ao conectar Wi-Fi:", e)
+        return wlan, False
 
 
 def desligar_wifi(wlan):
@@ -45,6 +51,10 @@ def desligar_wifi(wlan):
 def _sincronizar_hora():
     try:
         import ntptime
+        try:
+            ntptime.timeout = config.API_TIMEOUT_S  # builds recentes suportam; ignorado senão
+        except Exception:
+            pass
         ntptime.settime()   # ajusta o RTC em UTC
         return True
     except Exception as e:
@@ -53,16 +63,23 @@ def _sincronizar_hora():
 
 
 def sincronizar_hora_inicial():
-    """Acerta o RTC (NTP) uma vez no boot, ANTES da primeira leitura.
-    Sem isso, o RTC só é sincronizado no primeiro envio horário (após já
-    terem sido gravadas leituras com timestamp relativo/incorreto no buffer,
-    o que fica errado para sempre, pois a dedupe da API é por timestamp)."""
+    """Acerta o RTC (NTP) uma vez no boot, ANTES da primeira leitura, com
+    algumas tentativas. Sem isso, o RTC só é sincronizado no primeiro envio
+    horário (após já terem sido gravadas leituras com timestamp
+    relativo/incorreto no buffer, o que fica errado PARA SEMPRE, pois a
+    dedupe da API é por timestamp). Retorna True se conseguiu sincronizar."""
     wlan, ok = _conectar_wifi()
+    sincronizou = False
     if ok:
-        _sincronizar_hora()
+        for _tentativa in range(3):
+            if _sincronizar_hora():
+                sincronizou = True
+                break
+            time.sleep_ms(1000)
     else:
         print("Wi-Fi indisponível para sync inicial de hora.")
     desligar_wifi(wlan)
+    return sincronizou
 
 
 def enviar(leituras):
@@ -90,6 +107,7 @@ def enviar(leituras):
             config.API_URL,
             headers=config.API_HEADERS,
             data=json.dumps(payload),
+            timeout=config.API_TIMEOUT_S,
         )
         print("HTTP", resp.status_code)
         sucesso = (200 <= resp.status_code < 300)

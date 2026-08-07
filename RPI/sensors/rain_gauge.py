@@ -26,10 +26,15 @@ _ultimo_ms = 0
 
 
 def _on_tip(pin):
-    # roda em contexto de interrupção: mantenha curtíssimo
+    # roda em contexto de interrupção (hard IRQ): mantenha curtíssimo e sem
+    # alocar memória nova (nada de listas/strings novas aqui).
     global _tips, _ultimo_ms
     agora = time.ticks_ms()
-    if time.ticks_diff(agora, _ultimo_ms) < config.RAIN_DEBOUNCE_MS:
+    diff = time.ticks_diff(agora, _ultimo_ms)
+    # diff negativo = _ultimo_ms envelheceu além do intervalo seguro do
+    # ticks_diff (~6 dias sem chuva); tratar como "faz tempo, conta" — senão
+    # o debounce trava a contagem por dias inteiros após qualquer estiagem longa.
+    if 0 <= diff < config.RAIN_DEBOUNCE_MS:
         return  # debounce: ignora o repique mecânico da mesma báscula
     _ultimo_ms = agora
     _tips += 1
@@ -38,7 +43,10 @@ def _on_tip(pin):
 _pull = Pin.PULL_UP if config.RAIN_PULL_UP else Pin.PULL_DOWN
 _edge = Pin.IRQ_FALLING if config.RAIN_ON_FALLING else Pin.IRQ_RISING
 _pin = Pin(config.RAIN_GAUGE_PIN, Pin.IN, _pull)
-_pin.irq(handler=_on_tip, trigger=_edge)
+# hard=True: o handler roda direto na ISR, sem passar pela fila do scheduler
+# (que pode acumular vários tips e drená-los em rajada, com timestamps quase
+# iguais, se a VM ficar ocupada num trecho C — ex.: handshake TLS do envio).
+_pin.irq(handler=_on_tip, trigger=_edge, hard=True)
 
 
 def ler():
