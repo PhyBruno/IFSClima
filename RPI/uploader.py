@@ -48,7 +48,18 @@ def desligar_wifi(wlan):
         pass
 
 
+# Referência (epoch, ticks_ms) do último sync NTP bem-sucedido. main.py usa
+# isso para calcular a hora sem depender do RTC lido depois de um sono: no
+# rp2, o RTC fica congelado durante machine.lightsleep() em builds atuais do
+# MicroPython (bug confirmado, ainda aberto na v1.28.0 --
+# https://github.com/micropython/micropython/issues/16519), mas ticks_ms()
+# avança corretamente durante o sono.
+_ref_epoch_s = None
+_ref_ticks_ms = None
+
+
 def _sincronizar_hora():
+    global _ref_epoch_s, _ref_ticks_ms
     try:
         import ntptime
         try:
@@ -56,10 +67,20 @@ def _sincronizar_hora():
         except Exception:
             pass
         ntptime.settime()   # ajusta o RTC em UTC
+        # Captura a referência logo após o sync, com o RTC recém-atualizado
+        # (ainda não passou por nenhum lightsleep desde este ponto).
+        _ref_epoch_s = time.time()
+        _ref_ticks_ms = time.ticks_ms()
         return True
     except Exception as e:
         print("NTP falhou:", e)
         return False
+
+
+def hora_referencia():
+    """(epoch_s, ticks_ms) do último sync NTP bem-sucedido nesta sessão, ou
+    (None, None) se nunca sincronizou. Ver comentário de _ref_epoch_s acima."""
+    return _ref_epoch_s, _ref_ticks_ms
 
 
 def sincronizar_hora_inicial():

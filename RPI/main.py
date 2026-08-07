@@ -23,11 +23,32 @@ import uploader
 import sensors
 
 
-def _timestamp():
-    # Vem do RTC, sincronizado em UTC via NTP (uploader.sincronizar_hora_inicial()
-    # no boot + resync a cada envio horário).
+def _timestamp_bruto():
+    # melhor esforço com o RTC cru (só usado como fallback)
     t = time.localtime()
     return "%04d-%02d-%02dT%02d:%02d:%02d.000Z" % (t[0], t[1], t[2], t[3], t[4], t[5])
+
+
+def _timestamp():
+    # NÃO confiar em time.localtime()/time.time() "cru" depois de qualquer
+    # sono: o RTC do rp2 fica congelado durante machine.lightsleep() em
+    # builds atuais do MicroPython no RP2350, confirmado ainda aberto na
+    # v1.28.0 (https://github.com/micropython/micropython/issues/16519).
+    # Calculamos a hora a partir do último sync NTP bem-sucedido
+    # (uploader.hora_referencia()) + tempo decorrido via ticks_ms, que
+    # avança corretamente durante o sono.
+    epoch_ref, ticks_ref = uploader.hora_referencia()
+    if epoch_ref is None:
+        return _timestamp_bruto()  # nunca sincronizou nesta sessão
+
+    decorrido_ms = time.ticks_diff(time.ticks_ms(), ticks_ref)
+    if decorrido_ms < 0:
+        return _timestamp_bruto()  # referência velha demais (ticks_ms deu a volta)
+
+    agora_epoch = epoch_ref + decorrido_ms // 1000
+    ms = decorrido_ms % 1000
+    t = time.localtime(agora_epoch)
+    return "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ" % (t[0], t[1], t[2], t[3], t[4], t[5], ms)
 
 
 def _dormir_ate(alvo_ms):
