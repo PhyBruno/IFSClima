@@ -4,9 +4,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
  * `exportDashboardToPdf` (`utils/exportDashboardPdf.ts`, pedido do usuário,
  * 2026-08-16) — `html2canvas` (precisa de `<canvas>` real, que o jsdom não
  * implementa) e `jsPDF` são mockados: o que este teste verifica é a
- * ORQUESTRAÇÃO (capa desenhada antes do screenshot, paginação quando o
- * conteúdo é mais alto que uma página A4, nome do arquivo), não a
- * renderização pixel-a-pixel de nenhuma das duas libs.
+ * ORQUESTRAÇÃO (capa desenhada antes do screenshot, página de conteúdo em
+ * PAISAGEM com fit "contain" — trava pela largura ou pela altura conforme a
+ * proporção do canvas capturado —, nome do arquivo), não a renderização
+ * pixel-a-pixel de nenhuma das duas libs.
  */
 const addImage = vi.fn();
 const addPage = vi.fn();
@@ -107,27 +108,43 @@ describe("exportDashboardToPdf", () => {
     expect(firstTextCallIndex).toBeLessThan(firstImageCallIndex);
   });
 
-  it("conteúdo que cabe numa página só adiciona 1 página de imagem (mais a capa)", async () => {
-    // canvas quase quadrado -> altura convertida em mm cabe dentro de USABLE_HEIGHT_MM.
+  it("sempre adiciona exatamente 1 página de conteúdo, em paisagem (a4/landscape)", async () => {
     html2canvasMock.mockResolvedValue(fakeCanvas(1000, 800));
     const { exportDashboardToPdf } = await import("../../src/utils/exportDashboardPdf");
 
     await exportDashboardToPdf({ element: document.createElement("div") });
 
-    // 1 addPage pra capa->conteúdo + nenhum adicional de paginação.
     expect(addPage).toHaveBeenCalledTimes(1);
+    expect(addPage).toHaveBeenCalledWith("a4", "landscape");
     expect(addImage).toHaveBeenCalledTimes(1);
   });
 
-  it("conteúdo mais alto que uma página A4 é paginado em várias imagens", async () => {
-    // canvas bem alto (proporção larga) força imgHeightMm >> USABLE_HEIGHT_MM.
-    html2canvasMock.mockResolvedValue(fakeCanvas(1000, 6000));
+  it("canvas largo/baixo (proporção típica do dashboard) trava pela LARGURA da página paisagem (269mm), centralizado verticalmente", async () => {
+    // widthLockedHeight = 400 * 269/2000 ≈ 53.8mm, bem abaixo dos 182mm de altura útil -> trava largura.
+    html2canvasMock.mockResolvedValue(fakeCanvas(2000, 400));
     const { exportDashboardToPdf } = await import("../../src/utils/exportDashboardPdf");
 
     await exportDashboardToPdf({ element: document.createElement("div") });
 
-    expect(addPage.mock.calls.length).toBeGreaterThan(1);
-    expect(addImage.mock.calls.length).toBeGreaterThan(1);
+    const [, , x, y, w, h] = addImage.mock.calls[0]!;
+    expect(w).toBeCloseTo(269, 0);
+    expect(x).toBeCloseTo(14, 0); // MARGIN_MM, sem sobra horizontal pra centralizar.
+    expect(h).toBeCloseTo(53.8, 0);
+    expect(y).toBeGreaterThan(14); // centralizado: sobra metade da altura livre acima da margem.
+  });
+
+  it("canvas alto/estreito trava pela ALTURA da página paisagem (182mm), centralizado horizontalmente", async () => {
+    // heightLockedWidth = 500 * 182/3000 ≈ 30.3mm, bem abaixo dos 269mm de largura útil -> trava altura.
+    html2canvasMock.mockResolvedValue(fakeCanvas(500, 3000));
+    const { exportDashboardToPdf } = await import("../../src/utils/exportDashboardPdf");
+
+    await exportDashboardToPdf({ element: document.createElement("div") });
+
+    const [, , x, y, w, h] = addImage.mock.calls[0]!;
+    expect(h).toBeCloseTo(182, 0);
+    expect(y).toBeCloseTo(14, 0); // MARGIN_MM, sem sobra vertical pra centralizar.
+    expect(w).toBeCloseTo(30.3, 0);
+    expect(x).toBeGreaterThan(14); // centralizado: sobra metade da largura livre à direita da margem.
   });
 
   it("salva o arquivo com o timestamp AAAA-MM-DD de generatedAt", async () => {

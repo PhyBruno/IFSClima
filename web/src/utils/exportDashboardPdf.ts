@@ -16,8 +16,8 @@ import { formatDayMonth, formatTime } from "./formatTime";
  * de documento. A capa (`drawCoverPage`) é desenhada com a API vetorial do
  * jsPDF — fundo claro, título/subtítulo/data de exportação — e só DEPOIS
  * disso o screenshot real da tela (com os valores exibidos no momento do
- * clique) entra em página(s) seguintes, paginado se for mais alto que uma
- * folha A4.
+ * clique) entra numa segunda página, em PAISAGEM (ver `LANDSCAPE_USABLE_*`
+ * abaixo) para acompanhar a proporção larga do próprio dashboard.
  *
  * **`ignoreElements` via `data-pdf-ignore`**: em vez de exigir que o
  * chamador passe um elemento cirurgicamente recortado (arriscando cortar
@@ -38,8 +38,34 @@ export interface ExportDashboardPdfOptions {
 const A4_WIDTH_MM = 210;
 const A4_HEIGHT_MM = 297;
 const MARGIN_MM = 14;
-const USABLE_WIDTH_MM = A4_WIDTH_MM - MARGIN_MM * 2;
-const USABLE_HEIGHT_MM = A4_HEIGHT_MM - MARGIN_MM * 2;
+
+/**
+ * Página(s) de conteúdo em PAISAGEM, não retrato (correção, feedback do
+ * usuário, 2026-08-16: "não está de acordo com o layout original"). O
+ * dashboard capturado é sempre mais LARGO que alto (grid de cards/gráficos
+ * em 2-3 colunas) — numa folha A4 RETRATO (210×297mm), ajustar pela largura
+ * sobrava quase metade da página em branco abaixo do conteúdo, bem diferente
+ * da tela cheia que o usuário vê. Em PAISAGEM (297×210mm) a proporção da
+ * página fica muito mais parecida com a do próprio dashboard — o mesmo
+ * screenshot ocupa a página quase inteira. A capa continua em retrato (like
+ * a capa de um relatório) — só a(s) página(s) de conteúdo mudam.
+ */
+const LANDSCAPE_USABLE_WIDTH_MM = A4_HEIGHT_MM - MARGIN_MM * 2;
+const LANDSCAPE_USABLE_HEIGHT_MM = A4_WIDTH_MM - MARGIN_MM * 2;
+
+/**
+ * `html2canvas` dimensiona o canvas de saída EXATAMENTE para
+ * `element.getBoundingClientRect().height` — mas o próprio `html2canvas`
+ * pinta a última linha de texto um pouco mais abaixo do que o navegador
+ * renderiza nativamente (verificado por captura direta: sem esse respiro, o
+ * rodapé — "Atualizado há X", a última coisa capturada — saía com a base das
+ * letras cortada, mesmo a `<footer>` não tendo overflow nem padding
+ * insuficiente na tela real). Um respiro pequeno na ALTURA pedida ao
+ * `html2canvas` (não no elemento em si — a tela ao vivo não muda) é
+ * suficiente pra dar esse espaço; a imagem final na página do PDF fica só
+ * alguns milímetros mais alta, imperceptível no layout do documento.
+ */
+const CAPTURE_BOTTOM_BUFFER_PX = 16;
 
 /** `"DD/MM/AAAA HH:MM"` no fuso local — reaproveita `formatDayMonth`/`formatTime` (mesmas usadas no resto da UI), só acrescenta o ano por extenso que os dois omitem. */
 function formatFullDateTime(date: Date): string {
@@ -77,24 +103,38 @@ function drawCoverPage(pdf: jsPDF, stationLabel: string, generatedAt: Date): voi
   pdf.line(MARGIN_MM, 90, A4_WIDTH_MM - MARGIN_MM, 90);
 }
 
-/** Recorta `canvas` numa sequência de páginas A4 (a mesma imagem inteira, deslocada pra cima a cada página — técnica padrão `html2canvas`+`jsPDF`). */
-function addCanvasPages(pdf: jsPDF, canvas: HTMLCanvasElement): void {
+/**
+ * Encaixa `canvas` inteiro numa única página A4 PAISAGEM, do jeito que
+ * `background-size: contain` faria — trava pela LARGURA se isso já couber na
+ * altura disponível, senão trava pela ALTURA (exatamente um dos dois sempre
+ * serve, nunca os dois estouram ao mesmo tempo — é a mesma prova matemática
+ * de "contain fit"), e centraliza o resultado na página. O conteúdo do
+ * dashboard tem altura ESTÁVEL por design (`DashboardPage` sempre renderiza
+ * o mesmo número de cards/gráficos — trocar o período em `ChartsSection` não
+ * adiciona linhas novas, só troca os dados dos mesmos cards), então uma
+ * página só é suficiente na prática — sem a lógica de paginação por
+ * deslocamento vertical que uma tabela/lista de tamanho variável exigiria.
+ */
+function addCanvasPage(pdf: jsPDF, canvas: HTMLCanvasElement): void {
   const imgData = canvas.toDataURL("image/png");
-  const imgHeightMm = (canvas.height * USABLE_WIDTH_MM) / canvas.width;
 
-  let heightLeftMm = imgHeightMm;
-  let offsetMm = 0;
+  const widthLockedHeightMm = (canvas.height * LANDSCAPE_USABLE_WIDTH_MM) / canvas.width;
 
-  pdf.addPage();
-  pdf.addImage(imgData, "PNG", MARGIN_MM, MARGIN_MM, USABLE_WIDTH_MM, imgHeightMm);
-  heightLeftMm -= USABLE_HEIGHT_MM;
-
-  while (heightLeftMm > 0) {
-    offsetMm += USABLE_HEIGHT_MM;
-    pdf.addPage();
-    pdf.addImage(imgData, "PNG", MARGIN_MM, MARGIN_MM - offsetMm, USABLE_WIDTH_MM, imgHeightMm);
-    heightLeftMm -= USABLE_HEIGHT_MM;
+  let imgWidthMm: number;
+  let imgHeightMm: number;
+  if (widthLockedHeightMm <= LANDSCAPE_USABLE_HEIGHT_MM) {
+    imgWidthMm = LANDSCAPE_USABLE_WIDTH_MM;
+    imgHeightMm = widthLockedHeightMm;
+  } else {
+    imgHeightMm = LANDSCAPE_USABLE_HEIGHT_MM;
+    imgWidthMm = (canvas.width * LANDSCAPE_USABLE_HEIGHT_MM) / canvas.height;
   }
+
+  const xMm = MARGIN_MM + (LANDSCAPE_USABLE_WIDTH_MM - imgWidthMm) / 2;
+  const yMm = MARGIN_MM + (LANDSCAPE_USABLE_HEIGHT_MM - imgHeightMm) / 2;
+
+  pdf.addPage("a4", "landscape");
+  pdf.addImage(imgData, "PNG", xMm, yMm, imgWidthMm, imgHeightMm);
 }
 
 export async function exportDashboardToPdf({
@@ -105,12 +145,13 @@ export async function exportDashboardToPdf({
   const canvas = await html2canvas(element, {
     backgroundColor: "#0d1117",
     scale: 2,
+    height: Math.ceil(element.getBoundingClientRect().height) + CAPTURE_BOTTOM_BUFFER_PX,
     ignoreElements: (node) => node instanceof HTMLElement && node.dataset.pdfIgnore === "true",
   });
 
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   drawCoverPage(pdf, stationLabel, generatedAt);
-  addCanvasPages(pdf, canvas);
+  addCanvasPage(pdf, canvas);
 
   const stamp = generatedAt.toISOString().slice(0, 10);
   pdf.save(`ifsclima-dashboard-${stamp}.pdf`);

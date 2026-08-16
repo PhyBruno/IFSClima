@@ -83,14 +83,15 @@ const STATION_OFFLINE_THRESHOLD_SECONDS = 24 * 60 * 60;
  * peso só porque a feature existe; só quem clica "Exportar PDF" paga o
  * custo da segunda requisição de chunk.
  *
- * **Rodapé (feedback do usuário, 2026-07-24)**: "atualizado há X" morava
- * como legenda dentro do `SensorGrid` (T6.2) — movido pra cá, no rodapé da
- * página, junto da assinatura do desenvolvedor. `ageText` reaproveita o
- * MESMO `data`/`useLatest()` já buscado nesta função (sem hook novo) e segue
- * a MESMA regra do `SensorGrid` original: só aparece quando já existe uma
- * leitura de verdade (`data.timestamp !== null`) — nunca "atualizado sem
- * leitura" (texto que só fazia sentido como fallback defensivo de
- * `formatAge`, não como algo a mostrar de propósito).
+ * **Rodapé (feedback do usuário, 2026-07-24; assinatura do desenvolvedor
+ * removida a pedido do usuário, 2026-08-16)**: "atualizado há X" morava como
+ * legenda dentro do `SensorGrid` (T6.2) — movido pra cá, no rodapé da
+ * página. `ageText` reaproveita o MESMO `data`/`useLatest()` já buscado
+ * nesta função (sem hook novo) e segue a MESMA regra do `SensorGrid`
+ * original: só aparece quando já existe uma leitura de verdade
+ * (`data.timestamp !== null`) — nunca "atualizado sem leitura" (texto que só
+ * fazia sentido como fallback defensivo de `formatAge`, não como algo a
+ * mostrar de propósito).
  */
 export function DashboardPage() {
   const { data, isPending } = useLatest();
@@ -182,9 +183,8 @@ export function DashboardPage() {
           <SensorGrid />
           <ChartsSection />
 
-          <footer className="mt-2 flex flex-col items-center gap-1 border-t border-border-subtle pt-4 text-center text-xs text-text-faint md:flex-row md:justify-between md:text-left">
+          <footer className="mt-2 flex flex-col items-center gap-1 border-t border-border-subtle pt-4 text-center text-xs text-text-faint md:flex-row md:text-left">
             <span>{ageText}</span>
-            <span>Desenvolvido por Bruno Eduardo Santos © 2026</span>
           </footer>
         </div>
       </main>

@@ -194,7 +194,6 @@ describe("DashboardPage", () => {
 
       await waitFor(() => expect(screen.getByText(/atualizado/i)).toBeInTheDocument());
       expect(screen.getByText(/atualizado há 2 min/i)).toBeInTheDocument();
-      expect(screen.getByText(/desenvolvido por bruno eduardo santos/i)).toBeInTheDocument();
     });
 
     it("SensorGrid não mostra mais a legenda 'atualizado' (responsabilidade só do rodapé agora)", async () => {
@@ -207,12 +206,12 @@ describe("DashboardPage", () => {
       expect(within(grid).queryByText(/^atualizado/i)).not.toBeInTheDocument();
     });
 
-    it("sem nenhuma leitura ainda (timestamp null), não mostra 'Atualizado' no rodapé — só a assinatura", async () => {
+    it("sem nenhuma leitura ainda (timestamp null), não mostra 'Atualizado' no rodapé", async () => {
       server.use(http.get("/api/v1/readings/latest", () => HttpResponse.json(emptyLatestFixture)));
 
       renderPage();
 
-      await screen.findByText(/desenvolvido por bruno eduardo santos/i);
+      await screen.findByRole("heading", { name: /nenhuma leitura ainda/i });
       expect(screen.queryByText(/atualizado/i)).not.toBeInTheDocument();
     });
   });
