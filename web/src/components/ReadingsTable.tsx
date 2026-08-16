@@ -25,6 +25,16 @@ import { formatDayMonth, formatTime } from "../utils/formatTime";
  * número de páginas aqui (não vem pronto do backend, ver `HistoryResponse`);
  * "Anterior"/"Próxima" desabilitam nos limites (`page<=1`/`page>=totalPages`)
  * em vez de deixar o chamador tentar uma página inválida.
+ *
+ * **Sem `uppercase` no cabeçalho (correção, feedback do usuário, 2026-08-16)**:
+ * o `<thead>` aplicava `text-transform: uppercase` via Tailwind em cima do
+ * texto já formatado das colunas (`COLUMNS` abaixo) — visualmente correto
+ * pra "Temperatura"/"Umidade", mas errado pras unidades que têm maiúscula
+ * própria (`hPa`, não `HPA`; `mm` seguiria minúsculo, mas ficava `MM`).
+ * `tracking-wide` mantém o cabeçalho com cara de cabeçalho de tabela sem
+ * transformar o texto. O export CSV/XLSX (`api/src/exporters/`) usa nomes
+ * técnicos (`pressure_hpa`, `rain_mm`) que nunca tiveram esse problema — só a
+ * UI desta tabela precisava do ajuste.
  */
 export interface ReadingsTableProps {
   readings: HistoryReading[];
@@ -75,7 +85,7 @@ export function ReadingsTable({
     <Card padding="none" className={className.trim()}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-          <thead className="bg-surface-table-header text-xs font-semibold uppercase text-text-tertiary">
+          <thead className="bg-surface-table-header text-xs font-semibold tracking-wide text-text-tertiary">
             <tr>
               <th scope="col" className="whitespace-nowrap px-4 py-3">
                 Data/Hora

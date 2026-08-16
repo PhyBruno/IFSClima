@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLatest } from "../hooks/useLatest";
 import { StatusPill } from "../components/StatusPill";
 import { Sidebar } from "../components/Sidebar";
@@ -68,6 +68,21 @@ const STATION_OFFLINE_THRESHOLD_SECONDS = 24 * 60 * 60;
  * não os "últimos valores" repetidos. Uma frase só, no topo, cobre as duas
  * fontes de dado de uma vez — não duplicada por seção.
  *
+ * **"Exportar PDF" (pedido do usuário, 2026-08-16)**: botão no header que
+ * captura o MESMO conteúdo em tela (`contentRef`, o container que envolve
+ * header/`SensorGrid`/`ChartsSection`/rodapé) via `exportDashboardToPdf`
+ * (`utils/exportDashboardPdf.ts` — `html2canvas` + `jsPDF`), pensado pra uso
+ * em sala de aula (capa própria + os dados exatamente como o usuário está
+ * vendo, não um recorte). O próprio botão carrega `data-pdf-ignore="true"`
+ * (fica DENTRO do elemento capturado, mas não deveria aparecer no PDF que
+ * ele mesmo gera) e fica desabilitado durante a geração (`isExporting`) pra
+ * evitar cliques duplicados numa operação assíncrona que já é perceptível
+ * (screenshot + composição do PDF). `import()` dinâmico (não estático no
+ * topo do arquivo): `html2canvas`+`jsPDF` juntas passam de 150kB
+ * minificados — code-split evita que TODO usuário do dashboard baixe esse
+ * peso só porque a feature existe; só quem clica "Exportar PDF" paga o
+ * custo da segunda requisição de chunk.
+ *
  * **Rodapé (feedback do usuário, 2026-07-24)**: "atualizado há X" morava
  * como legenda dentro do `SensorGrid` (T6.2) — movido pra cá, no rodapé da
  * página, junto da assinatura do desenvolvedor. `ageText` reaproveita o
@@ -90,10 +105,35 @@ export function DashboardPage() {
   const isStale = data?.age_seconds != null && data.age_seconds > STATION_OFFLINE_THRESHOLD_SECONDS;
   const showOfflineIndicator =
     !indicatorTimedOut && !isPending && Boolean(data) && (neverReported || isStale);
-  const ageText = data && data.timestamp !== null ? `Atualizado ${formatAge(data.age_seconds)}` : null;
+  const ageText =
+    data && data.timestamp !== null ? `Atualizado ${formatAge(data.age_seconds)}` : null;
   const lastReadingLabel = data?.timestamp
     ? `${formatDayMonth(data.timestamp)} ${formatTime(data.timestamp)}`
     : undefined;
+
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState(false);
+
+  async function handleExportPdf() {
+    if (!contentRef.current || isExporting) {
+      return;
+    }
+
+    setIsExporting(true);
+    setExportError(false);
+    try {
+      const { exportDashboardToPdf } = await import("../utils/exportDashboardPdf");
+      await exportDashboardToPdf({
+        element: contentRef.current,
+        stationLabel: data?.station_id ?? "main",
+      });
+    } catch {
+      setExportError(true);
+    } finally {
+      setIsExporting(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-surface-page text-text-primary">
@@ -113,13 +153,30 @@ export function DashboardPage() {
         {/* max-w-5xl (1024px) sobrava espaço vazio óbvio em desktops largos
             (feedback do usuário, 2026-07-24) — 1600px aproveita a largura
             real ao lado da Sidebar sem esticar demais em ultrawide. */}
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
-          <header className="flex flex-col gap-1">
-            <h1 className="text-xl font-bold md:text-2xl">Painel de Monitoramento</h1>
-            <p className="text-sm text-text-tertiary">
-              Sensores mostram a leitura mais recente da estação; os gráficos mostram a média histórica do período
-              selecionado.
-            </p>
+        <div ref={contentRef} className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
+          <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="flex flex-col gap-1">
+              <h1 className="text-xl font-bold md:text-2xl">Painel de Monitoramento</h1>
+              <p className="text-sm text-text-tertiary">
+                Sensores mostram a leitura mais recente da estação; os gráficos mostram a média
+                histórica do período selecionado.
+              </p>
+            </div>
+            <div className="flex flex-col items-start gap-1 md:items-end" data-pdf-ignore="true">
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={isExporting}
+                className="shrink-0 rounded-lg bg-brand-primary px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isExporting ? "Gerando PDF…" : "Exportar PDF"}
+              </button>
+              {exportError ? (
+                <span role="alert" className="text-xs text-status-negative">
+                  Não foi possível gerar o PDF. Tente novamente.
+                </span>
+              ) : null}
+            </div>
           </header>
 
           <SensorGrid />

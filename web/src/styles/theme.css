@@ -64,6 +64,22 @@
   --color-status-positive: #16a34a;
   --color-status-negative: #dc2626;
   --color-status-neutral: #9ca3af;
+
+  /* Badge de criticidade do Índice UV — escala da OMS (5 níveis, ver
+     `utils/uvIndex.ts`). Cores fixas nos dois temas (mesmo padrão de
+     `--color-status-*` acima, que também não varia por tema): são cores de
+     alerta reconhecidas internacionalmente (verde→roxo), não um acento de
+     produto que devesse se adaptar ao tema. */
+  --color-uv-low: #2e7d32;
+  --color-uv-low-bg: rgba(46, 125, 50, 0.14);
+  --color-uv-moderate: #b45309;
+  --color-uv-moderate-bg: rgba(180, 83, 9, 0.14);
+  --color-uv-high: #ea580c;
+  --color-uv-high-bg: rgba(234, 88, 12, 0.14);
+  --color-uv-very-high: #dc2626;
+  --color-uv-very-high-bg: rgba(220, 38, 38, 0.14);
+  --color-uv-extreme: #9333ea;
+  --color-uv-extreme-bg: rgba(147, 51, 234, 0.16);
   /* status.online: o dark (§1.5) não distingue dot de texto (só existe uma
      linha "status.online.text #4ade80" cobrindo os dois usos) — por isso os
      dois tokens acima têm o MESMO valor no dark. O light (§8.5) já distingue

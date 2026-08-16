@@ -75,6 +75,22 @@ export const expectedColorTokens: Record<string, Record<string, string>> = {
     "rain-bg": "var(--color-surface-chip)",
     "wind-bg": "var(--color-surface-chip)",
   },
+  // Badge de criticidade do Índice UV (escala OMS, pedido do usuário
+  // 2026-08-16) — invariante de tema, mesma justificativa de status.*/
+  // toggle.* acima (cores de alerta reconhecidas internacionalmente, não um
+  // acento de produto que devesse variar por tema).
+  uv: {
+    low: "#2e7d32",
+    "low-bg": "rgba(46, 125, 50, 0.14)",
+    moderate: "#b45309",
+    "moderate-bg": "rgba(180, 83, 9, 0.14)",
+    high: "#ea580c",
+    "high-bg": "rgba(234, 88, 12, 0.14)",
+    "very-high": "#dc2626",
+    "very-high-bg": "rgba(220, 38, 38, 0.14)",
+    extreme: "#9333ea",
+    "extreme-bg": "rgba(147, 51, 234, 0.16)",
+  },
 };
 
 /**

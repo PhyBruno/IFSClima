@@ -1,12 +1,24 @@
 import type { ReactNode } from "react";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../mocks/server";
 import { createQueryClient } from "../../src/providers/QueryProvider";
 import { DashboardPage } from "../../src/pages/DashboardPage";
 import { emptyLatestFixture, latestFixture } from "../fixtures/readings";
+import { exportDashboardToPdf } from "../../src/utils/exportDashboardPdf";
+
+/**
+ * `exportDashboardToPdf` (`utils/exportDashboardPdf.ts`) usa `html2canvas`
+ * (precisa de um `<canvas>` de verdade, que o jsdom não implementa) — mockado
+ * aqui pra testar só a integração do BOTÃO (chamada/loading/erro), não a
+ * geração real do PDF (isso é responsabilidade de um teste próprio do
+ * util, com `html2canvas`/`jsPDF` também mockados).
+ */
+vi.mock("../../src/utils/exportDashboardPdf", () => ({
+  exportDashboardToPdf: vi.fn(),
+}));
 
 /**
  * `DashboardPage` (F6 T6.5) — monta `Sidebar`/`BottomNav` (navegação) +
@@ -35,6 +47,10 @@ beforeAll(() => {
 });
 afterAll(() => {
   process.env.TZ = originalTZ;
+});
+
+afterEach(() => {
+  vi.mocked(exportDashboardToPdf).mockReset();
 });
 
 function renderPage() {
@@ -102,7 +118,9 @@ describe("DashboardPage", () => {
     const notification = await screen.findByRole("status");
     expect(within(notification).getByText("Offline")).toBeInTheDocument();
     // latestFixture.timestamp = 2026-07-23T14:30:00.000Z, TZ=UTC no teste.
-    expect(within(notification).getByText(/última leitura: 14:30/i)).toBeInTheDocument();
+    // Corrigido (2026-08-16): fe51459 passou a mostrar data + hora ("23/07
+    // 14:30"), não só a hora — este teste não tinha sido atualizado.
+    expect(within(notification).getByText(/última leitura: 23\/07 14:30/i)).toBeInTheDocument();
     expect(within(notification).queryByText(/reconectando/i)).not.toBeInTheDocument();
   });
 
@@ -117,7 +135,7 @@ describe("DashboardPage", () => {
 
     const notification = await screen.findByRole("status");
     expect(notification).toHaveClass("fixed", "right-4", "top-4");
-    // Não é filho do <header> (que só tem o título).
+    // Não é filho do <header> (que tem só o título e o botão "Exportar PDF").
     const header = screen.getByRole("banner");
     expect(within(header).queryByRole("status")).not.toBeInTheDocument();
   });
@@ -196,6 +214,77 @@ describe("DashboardPage", () => {
 
       await screen.findByText(/desenvolvido por bruno eduardo santos/i);
       expect(screen.queryByText(/atualizado/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Exportar PDF (pedido do usuário, 2026-08-16)", () => {
+    it("clicar em 'Exportar PDF' chama exportDashboardToPdf com o container da página e o station_id da leitura atual", async () => {
+      vi.mocked(exportDashboardToPdf).mockResolvedValue();
+      renderPage();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
+
+      await waitFor(() => expect(exportDashboardToPdf).toHaveBeenCalledTimes(1));
+      const call = vi.mocked(exportDashboardToPdf).mock.calls[0]![0];
+      expect(call.element).toBeInstanceOf(HTMLElement);
+      expect(call.stationLabel).toBe(latestFixture.station_id);
+    });
+
+    it("botão mostra 'Gerando PDF…' e fica desabilitado enquanto a exportação está em voo", async () => {
+      let resolveExport!: () => void;
+      vi.mocked(exportDashboardToPdf).mockReturnValue(
+        new Promise((resolve) => {
+          resolveExport = resolve;
+        }),
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
+
+      const button = await screen.findByRole("button", { name: "Gerando PDF…" });
+      expect(button).toBeDisabled();
+
+      resolveExport();
+      await screen.findByRole("button", { name: "Exportar PDF" });
+    });
+
+    it("falha na exportação mostra uma mensagem de erro (role=alert), sem quebrar a página", async () => {
+      vi.mocked(exportDashboardToPdf).mockRejectedValue(new Error("boom"));
+      renderPage();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/não foi possível gerar o pdf/i);
+      expect(await screen.findByRole("button", { name: "Exportar PDF" })).toBeEnabled();
+    });
+
+    it("o botão de exportar carrega data-pdf-ignore, pra não aparecer no próprio PDF que ele gera", async () => {
+      renderPage();
+
+      const button = screen.getByRole("button", { name: "Exportar PDF" });
+      expect(button.closest("[data-pdf-ignore]")).toBeInTheDocument();
+    });
+
+    it("clique duplo enquanto já está exportando não dispara uma segunda chamada (botão fica disabled, mas a guarda também protege)", async () => {
+      let resolveExport!: () => void;
+      vi.mocked(exportDashboardToPdf).mockReturnValue(
+        new Promise((resolve) => {
+          resolveExport = resolve;
+        }),
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      const button = screen.getByRole("button", { name: "Exportar PDF" });
+      fireEvent.click(button);
+      fireEvent.click(button);
+
+      await waitFor(() => expect(exportDashboardToPdf).toHaveBeenCalledTimes(1));
+      resolveExport();
+      await screen.findByRole("button", { name: "Exportar PDF" });
     });
   });
 });
