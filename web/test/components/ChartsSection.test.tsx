@@ -78,6 +78,19 @@ describe("funções puras de ChartsSection", () => {
     it("response undefined (query ainda carregando) produz series=[]", () => {
       expect(bucketsToLineSeries(undefined, "Temperatura", "#f97316")).toEqual([]);
     });
+
+    it("field='sum' (pedido do usuário, 2026-08-16: Chuva virou linha, mas continua acumulada) mapeia sum, não avg", () => {
+      const series = bucketsToLineSeries(rainSeriesFixture, "Chuva", "#06b6d4", undefined, "sum");
+
+      // Mesmos valores de `bucketsToBarSeries` (sum: 0.4, 0.1) — só o traço visual mudou de barra pra linha.
+      expect(series).toEqual([{ label: "Chuva", color: "#06b6d4", points: [0.4, 0.1] }]);
+    });
+
+    it("sem field (default 'avg') continua mapeando avg mesmo pra rainSeriesFixture", () => {
+      const series = bucketsToLineSeries(rainSeriesFixture, "Chuva (média)", "#06b6d4");
+
+      expect(series).toEqual([{ label: "Chuva (média)", color: "#06b6d4", points: [0.1, 0.05] }]);
+    });
   });
 
   describe("bucketsToBarSeries", () => {
@@ -218,7 +231,10 @@ describe("ChartsSection (integração RTL + MSW)", () => {
   it("renderiza o PeriodSelector com 24h ativo por padrão e um ChartCard por métrica", async () => {
     render(<ChartsSection />, { wrapper: createWrapper() });
 
-    expect(screen.getByRole("button", { name: "Últimas 24h" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Últimas 24h" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
 
     expect(screen.getByText("Temperatura")).toBeInTheDocument();
     expect(screen.getByText("Umidade")).toBeInTheDocument();
@@ -233,7 +249,10 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     render(<ChartsSection />, { wrapper: createWrapper() });
 
     expect(screen.getByRole("button", { name: "7 dias" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Últimas 24h" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Últimas 24h" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("trocar o período no PeriodSelector atualiza a URL e dispara refetch de /series com o novo range", async () => {
@@ -262,7 +281,7 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     expect(screen.getByRole("button", { name: "7 dias" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("chuva é desenhada em barras (não linha) usando os valores de sum", async () => {
+  it("chuva é desenhada em LINHA (não barras, pedido do usuário 2026-08-16 — consistência visual com os outros cards), usando os valores de sum (acumulada, não uma média)", async () => {
     server.use(
       http.get("/api/v1/readings/series", ({ request }) => {
         const metric = new URL(request.url).searchParams.get("metric");
@@ -282,10 +301,14 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     // elemento com o texto exato "Chuva" (o título do card standalone).
     await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
-    const rainCard = screen.getByText("Chuva").closest('[data-testid="chartcard"]')!;
+    const rainCard = screen
+      .getByRole("heading", { name: "Chuva", level: 3 })
+      .closest('[data-testid="chartcard"]')!;
     const svg = rainCard.querySelector('[data-testid="chart-svg"]')!;
-    expect(svg.querySelectorAll("rect")).toHaveLength(2);
-    expect(svg.querySelectorAll("polyline")).toHaveLength(0);
+    expect(svg.querySelectorAll("polyline")).toHaveLength(1);
+    expect(svg.querySelectorAll("rect")).toHaveLength(0);
+    // pointLabels/tooltip usam os mesmos valores de `sum` de antes (rainSeriesFixture: 0.4, 0.1) — só o traço visual mudou.
+    expect(bucketsToPointLabels(rainSeriesFixture, "sum")).toEqual(["13:00", "14:00"]);
   });
 
   it("período sem dados (buckets: []) mostra o EmptyState de F5 dentro de cada ChartCard vazio", async () => {
@@ -388,7 +411,7 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       expect(svg.querySelectorAll("polyline")).toHaveLength(2);
     });
 
-    it("combo Índice UV × Chuva usa a MÉDIA da chuva (avg), não a soma acumulada do card standalone — o card 'Chuva' original não muda", async () => {
+    it("combo Índice UV × Chuva usa a MÉDIA da chuva (avg), não a soma acumulada do card standalone — o card 'Chuva' original não muda de dado, só de traço (linha desde 2026-08-16)", async () => {
       server.use(
         http.get("/api/v1/readings/series", ({ request }) => {
           const metric = new URL(request.url).searchParams.get("metric");
@@ -399,12 +422,20 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       render(<ChartsSection />, { wrapper: createWrapper() });
       await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
-      // Card standalone "Chuva": continua bar/sum (0.4, 0.1 — rainSeriesFixture.sum).
-      const rainCard = screen.getByText("Chuva").closest('[data-testid="chartcard"]')!;
-      expect(rainCard.querySelector('[data-testid="chart-svg"]')!.querySelectorAll("rect")).toHaveLength(2);
+      // Card standalone "Chuva": 1 linha só (não é combo), com os valores de
+      // `sum` (0.4, 0.1) — cobertura de VALOR fica no teste puro de
+      // `bucketsToLineSeries(..., "sum")` acima; aqui só confere o traço.
+      const rainCard = screen
+        .getByRole("heading", { name: "Chuva", level: 3 })
+        .closest('[data-testid="chartcard"]')!;
+      const rainSvg = rainCard.querySelector('[data-testid="chart-svg"]')!;
+      expect(rainSvg.querySelectorAll("polyline")).toHaveLength(1);
+      expect(rainSvg.querySelectorAll("rect")).toHaveLength(0);
 
-      // Combo "uv-rain": chuva vira linha com avg (0.1, 0.05 — rainSeriesFixture.avg), não sum.
-      const comboCard = screen.getByText("Índice UV × Chuva — chuva média (mm)").closest('[data-testid="chartcard"]')!;
+      // Combo "uv-rain": 2 linhas (Índice UV + Chuva com avg, não sum).
+      const comboCard = screen
+        .getByText("Índice UV × Chuva — chuva média (mm)")
+        .closest('[data-testid="chartcard"]')!;
       const comboSvg = comboCard.querySelector('[data-testid="chart-svg"]')!;
       expect(comboSvg.querySelectorAll("polyline")).toHaveLength(2);
       expect(comboSvg.querySelectorAll("rect")).toHaveLength(0);
@@ -421,7 +452,9 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       render(<ChartsSection />, { wrapper: createWrapper() });
       await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
-      const card = screen.getByText("Temperatura × Pressão").closest<HTMLElement>('[data-testid="chartcard"]')!;
+      const card = screen
+        .getByText("Temperatura × Pressão")
+        .closest<HTMLElement>('[data-testid="chartcard"]')!;
       expect(within(card).queryByTestId("chart-axis")).not.toBeInTheDocument();
 
       const hitTargets = within(card).getAllByTestId("chart-point-hit");

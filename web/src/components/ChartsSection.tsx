@@ -168,7 +168,10 @@ export function buildXLabels(response: SeriesResponse | undefined): string[] {
     return [formatBucketLabel(buckets[0]!.t, bucket)];
   }
 
-  return [formatBucketLabel(buckets[0]!.t, bucket), formatBucketLabel(buckets[buckets.length - 1]!.t, bucket)];
+  return [
+    formatBucketLabel(buckets[0]!.t, bucket),
+    formatBucketLabel(buckets[buckets.length - 1]!.t, bucket),
+  ];
 }
 
 /**
@@ -195,9 +198,9 @@ function extractSeriesData(
 }
 
 /**
- * `avg` de cada bucket → 1 série de linha (UI-05). `response` undefined
- * (query ainda sem dado) ou sem pontos válidos → `[]`, o que já faz o
- * `ChartCard` mostrar `EmptyState` sozinho (UI-06 AC4).
+ * `avg` (default) ou `sum` de cada bucket → 1 série de linha (UI-05).
+ * `response` undefined (query ainda sem dado) ou sem pontos válidos → `[]`,
+ * o que já faz o `ChartCard` mostrar `EmptyState` sozinho (UI-06 AC4).
  *
  * `unit` (4º parâmetro, opcional): popula `ChartSeries.unit` — usado pelos
  * cards "combo" (`COMBO_CHARTS`/`comboSeries` abaixo), onde cada uma das 2
@@ -209,19 +212,31 @@ function extractSeriesData(
  * chamadas existentes (o operador de espalhamento condicional abaixo evita
  * até uma chave `unit: undefined` "a mais" no objeto, pra não depender da
  * semântica de `toEqual` ignorar chaves `undefined`).
+ *
+ * `field` (5º parâmetro, opcional, default `"avg"`): pedido do usuário,
+ * 2026-08-16 — o card standalone "Chuva" passou de `variant="bar"` para
+ * `variant="line"` (visual consistente com os outros 4 cards), mas SEM
+ * perder o significado físico de "chuva acumulada" (UI-07/spec.md AC3, ver
+ * `bucketsToBarSeries` abaixo) — continua somando por bucket, só desenhado
+ * como linha em vez de barras. `METRIC_CHARTS`/`aggregation` decide isso;
+ * as chamadas de `comboSeries` (combos) continuam com o default `"avg"`,
+ * inalteradas.
  */
 export function bucketsToLineSeries(
   response: SeriesResponse | undefined,
   label: string,
   color: string,
   unit?: string,
+  field: "avg" | "sum" = "avg",
 ): ChartSeries[] {
   if (!response) {
     return [];
   }
 
-  const { points } = extractSeriesData(response.buckets, "avg", response.bucket);
-  return points.length === 0 ? [] : [{ label, color, points, ...(unit !== undefined ? { unit } : {}) }];
+  const { points } = extractSeriesData(response.buckets, field, response.bucket);
+  return points.length === 0
+    ? []
+    : [{ label, color, points, ...(unit !== undefined ? { unit } : {}) }];
 }
 
 /** `sum` (não `avg`) de cada bucket → 1 série de barras — chuva é acumulada, não uma média (UI-07/spec.md AC3). */
@@ -255,7 +270,10 @@ export function bucketsToBarSeries(
  * já é `day`, então `formatBucketLabel` já produz `"DD/MM"` sozinho (um
  * valor médio diário não tem "hora" própria pra mostrar).
  */
-export function bucketsToPointLabels(response: SeriesResponse | undefined, field: "avg" | "sum"): string[] {
+export function bucketsToPointLabels(
+  response: SeriesResponse | undefined,
+  field: "avg" | "sum",
+): string[] {
   if (!response) {
     return [];
   }
@@ -277,6 +295,15 @@ interface MetricChartConfig {
   variant: "line" | "bar";
   /** Unidade exibida no eixo Y e no tooltip do `ChartCard` (feedback do usuário, 2026-07-24) — mesmos valores usados em `SensorGrid.SENSORS`. */
   unit: string;
+  /**
+   * Campo agregado por bucket em `variant="line"` — `"avg"` (default,
+   * omitido) pra maioria das métricas; Chuva usa `"sum"` (pedido do
+   * usuário, 2026-08-16: virou `variant="line"` como as outras, mas
+   * continua ACUMULADA por bucket, não uma média — ver docstring de
+   * `bucketsToLineSeries`). Sem efeito em `variant="bar"` — `bucketsToBarSeries`
+   * já é sempre `sum` (não usado por nenhum `METRIC_CHARTS` hoje).
+   */
+  aggregation?: "avg" | "sum";
 }
 
 /**
@@ -285,11 +312,42 @@ interface MetricChartConfig {
  * reflui pra 3+2 em telas bem largas, sem espaço vazio óbvio ao lado.
  */
 const METRIC_CHARTS: MetricChartConfig[] = [
-  { metric: "temperature_c", title: "Temperatura", color: "var(--color-sensor-temperature)", variant: "line", unit: "°C" },
-  { metric: "humidity_pct", title: "Umidade", color: "var(--color-sensor-humidity)", variant: "line", unit: "%" },
-  { metric: "pressure_hpa", title: "Pressão", color: "var(--color-sensor-pressure)", variant: "line", unit: "hPa" },
-  { metric: "rain_mm", title: "Chuva", color: "var(--color-sensor-rain)", variant: "bar", unit: "mm" },
-  { metric: "uv_index", title: "Índice UV", color: "var(--color-sensor-uv)", variant: "line", unit: "" },
+  {
+    metric: "temperature_c",
+    title: "Temperatura",
+    color: "var(--color-sensor-temperature)",
+    variant: "line",
+    unit: "°C",
+  },
+  {
+    metric: "humidity_pct",
+    title: "Umidade",
+    color: "var(--color-sensor-humidity)",
+    variant: "line",
+    unit: "%",
+  },
+  {
+    metric: "pressure_hpa",
+    title: "Pressão",
+    color: "var(--color-sensor-pressure)",
+    variant: "line",
+    unit: "hPa",
+  },
+  {
+    metric: "rain_mm",
+    title: "Chuva",
+    color: "var(--color-sensor-rain)",
+    variant: "line",
+    unit: "mm",
+    aggregation: "sum",
+  },
+  {
+    metric: "uv_index",
+    title: "Índice UV",
+    color: "var(--color-sensor-uv)",
+    variant: "line",
+    unit: "",
+  },
 ];
 
 /** Uma das 2 métricas desenhadas num `ComboChartConfig` — vira 1 `ChartSeries` via `bucketsToLineSeries(..., unit)`. */
@@ -320,8 +378,9 @@ interface ComboChartConfig {
    * acumulada" também no combo. Optou-se pela alternativa mais simples:
    * chuva vira MÉDIA (não soma) neste card específico, e o título deixa
    * isso explícito ("chuva média") pra não ser confundido com o card
-   * standalone "Chuva" (que continua `variant="bar"`/`sum`, sem nenhuma
-   * mudança — ver `METRIC_CHARTS` acima, intocado).
+   * standalone "Chuva" (que também é `variant="line"` desde 2026-08-16, mas
+   * `aggregation="sum"` — acumulada, não uma média; ver `METRIC_CHARTS`
+   * acima e a docstring de `bucketsToLineSeries`).
    */
   title: string;
   series: [ComboSeriesConfig, ComboSeriesConfig];
@@ -341,8 +400,18 @@ const COMBO_CHARTS: ComboChartConfig[] = [
     key: "temperature-humidity",
     title: "Temperatura × Umidade",
     series: [
-      { metric: "temperature_c", label: "Temperatura", color: "var(--color-sensor-temperature)", unit: "°C" },
-      { metric: "humidity_pct", label: "Umidade", color: "var(--color-sensor-humidity)", unit: "%" },
+      {
+        metric: "temperature_c",
+        label: "Temperatura",
+        color: "var(--color-sensor-temperature)",
+        unit: "°C",
+      },
+      {
+        metric: "humidity_pct",
+        label: "Umidade",
+        color: "var(--color-sensor-humidity)",
+        unit: "%",
+      },
     ],
   },
   {
@@ -361,8 +430,18 @@ const COMBO_CHARTS: ComboChartConfig[] = [
     key: "temperature-pressure",
     title: "Temperatura × Pressão",
     series: [
-      { metric: "temperature_c", label: "Temperatura", color: "var(--color-sensor-temperature)", unit: "°C" },
-      { metric: "pressure_hpa", label: "Pressão", color: "var(--color-sensor-pressure)", unit: "hPa" },
+      {
+        metric: "temperature_c",
+        label: "Temperatura",
+        color: "var(--color-sensor-temperature)",
+        unit: "°C",
+      },
+      {
+        metric: "pressure_hpa",
+        label: "Pressão",
+        color: "var(--color-sensor-pressure)",
+        unit: "hPa",
+      },
     ],
   },
 ];
@@ -370,21 +449,35 @@ const COMBO_CHARTS: ComboChartConfig[] = [
 type MetricSeriesResult = UseQueryResult<SeriesResponse, Error>;
 
 /** As 2 séries de um combo, já no shape de `ChartCard` (uma por métrica, unidade própria — ver `ComboSeriesConfig.unit`). Métrica sem dado (query pendente/vazia) contribui `[]` (mesma regra de `bucketsToLineSeries`), então um combo com só 1 das 2 métricas preenchida ainda desenha aquela série sozinha (não é tratado como card inteiro vazio, a não ser que AS DUAS estejam vazias — `isEmptySeries` do `ChartCard` já cobre isso). */
-function comboSeries(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): ChartSeries[] {
-  return config.series.flatMap((s) => bucketsToLineSeries(resultByMetric.get(s.metric)?.data, s.label, s.color, s.unit));
+function comboSeries(
+  config: ComboChartConfig,
+  resultByMetric: Map<Metric, MetricSeriesResult>,
+): ChartSeries[] {
+  return config.series.flatMap((s) =>
+    bucketsToLineSeries(resultByMetric.get(s.metric)?.data, s.label, s.color, s.unit),
+  );
 }
 
 /** Um combo está "carregando" enquanto QUALQUER uma das suas 2 métricas ainda não tem resultado nem cache anterior (`isPending`, mesmo critério usado por `METRIC_CHARTS`/`ChartCardSkeleton` abaixo). */
-function comboIsPending(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): boolean {
+function comboIsPending(
+  config: ComboChartConfig,
+  resultByMetric: Map<Metric, MetricSeriesResult>,
+): boolean {
   return config.series.some((s) => resultByMetric.get(s.metric)?.isPending ?? true);
 }
 
 /** Eixo X / rótulos de tooltip do combo vêm da PRIMEIRA métrica do card (`series[0]`) — escolha arbitrária mas consistente (documentada aqui): as 2 métricas de um combo vêm da MESMA estação/ingestão por bucket (`PROJECT.md`), então os buckets tendem a estar alinhados; se uma métrica tiver um gap que a outra não tem, o rótulo de tempo daquele ponto específico pode desalinhar — limitação preexistente de `pointLabels` ser por CARD, não por série (fora do escopo desta tarefa, que pediu resolver o gap de UNIDADE, não o de rótulo). */
-function comboXLabels(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): string[] {
+function comboXLabels(
+  config: ComboChartConfig,
+  resultByMetric: Map<Metric, MetricSeriesResult>,
+): string[] {
   return buildXLabels(resultByMetric.get(config.series[0].metric)?.data);
 }
 
-function comboPointLabels(config: ComboChartConfig, resultByMetric: Map<Metric, MetricSeriesResult>): string[] {
+function comboPointLabels(
+  config: ComboChartConfig,
+  resultByMetric: Map<Metric, MetricSeriesResult>,
+): string[] {
   return bucketsToPointLabels(resultByMetric.get(config.series[0].metric)?.data, "avg");
 }
 
@@ -443,7 +536,11 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
 
     setRange(value);
     const search = buildSearchWithRange(window.location.search, value);
-    window.history.replaceState(null, "", `${window.location.pathname}${search}${window.location.hash}`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${search}${window.location.hash}`,
+    );
   }
 
   return (
@@ -461,11 +558,11 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
             return <ChartCardSkeleton key={config.metric} title={config.title} />;
           }
 
-          const field = config.variant === "bar" ? "sum" : "avg";
+          const field = config.aggregation ?? "avg";
           const series =
             config.variant === "bar"
               ? bucketsToBarSeries(result.data, config.title, config.color)
-              : bucketsToLineSeries(result.data, config.title, config.color);
+              : bucketsToLineSeries(result.data, config.title, config.color, undefined, field);
 
           return (
             <ChartCard
