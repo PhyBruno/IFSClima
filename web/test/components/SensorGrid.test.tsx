@@ -144,4 +144,46 @@ describe("SensorGrid", () => {
     expect(screen.queryByText(/reconectando/i)).not.toBeInTheDocument();
     expect(screen.queryAllByTestId("statcard-skeleton")).toHaveLength(0);
   });
+
+  describe("badge de criticidade UV + tooltips (pedido do usuário, 2026-08-16)", () => {
+    it("card de Índice UV mostra a badge de criticidade OMS (uv_index=5.3 → 'Moderado')", async () => {
+      renderGrid();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      expect(screen.getByTestId("uv-badge")).toHaveTextContent("Moderado");
+    });
+
+    it("os outros 4 sensores nunca recebem badge de criticidade", async () => {
+      renderGrid();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      expect(screen.getAllByTestId("uv-badge")).toHaveLength(1);
+    });
+
+    it("uv_index null (sem sinal) não mostra badge nenhuma", async () => {
+      server.use(
+        http.get("/api/v1/readings/latest", () =>
+          HttpResponse.json({ ...latestFixture, uv_index: null }),
+        ),
+      );
+
+      renderGrid();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      expect(screen.queryByTestId("uv-badge")).not.toBeInTheDocument();
+    });
+
+    it("cards de Umidade e Índice UV têm ícone de tooltip explicando o cálculo; os demais não", async () => {
+      renderGrid();
+
+      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+      expect(screen.getByRole("button", { name: /como umidade é calculado/i })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /como índice uv é calculado/i }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /como temperatura/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /como pressão/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /como chuva/i })).not.toBeInTheDocument();
+    });
+  });
 });

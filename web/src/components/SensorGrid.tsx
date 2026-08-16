@@ -5,6 +5,7 @@ import { Card } from "./Card";
 import { EmptyState } from "./EmptyState";
 import { Skeleton } from "./Skeleton";
 import { ConnectionBanner } from "./ConnectionBanner";
+import { UvBadge } from "./UvBadge";
 
 /**
  * `SensorGrid` (F6 T6.2/T6.4) — compõe `StatCard` (F5) para os 5 sensores a
@@ -83,6 +84,13 @@ import { ConnectionBanner } from "./ConnectionBanner";
  *   (desktop grande, com a `Sidebar` de T6.5 ocupando 224px fixos à
  *   esquerda), 3 colunas deixavam espaço vazio óbvio à direita — os 5
  *   sensores cabem numa única linha a partir desse breakpoint.
+ *
+ * - **Badge de criticidade do UV + tooltips (pedido do usuário, 2026-08-16)**:
+ *   `UvBadge` só é passada ao card de `uv_index` quando `value !== null`
+ *   (criticidade não existe sem um valor pra classificar) — os outros 4
+ *   sensores nunca recebem `badge`. `tooltip` (Umidade/UV) é passado nos DOIS
+ *   estados (`!data` e normal), inclusive "sem sinal" — é uma explicação do
+ *   SENSOR, não do valor da leitura atual.
  */
 
 const PLACEHOLDER_ICON: ReactNode = (
@@ -98,14 +106,30 @@ interface SensorDefinition {
   sensor: SensorType;
   label: string;
   unit: string;
+  /** Texto de `InfoTooltip` (pedido do usuário, 2026-08-16) — omitido nos sensores sem explicação pedida (Temperatura/Pressão/Chuva). */
+  tooltip?: string;
 }
+
+/** Explicação do cálculo de umidade relativa (pedido do usuário, 2026-08-16), para o tooltip do card no KPI. */
+const HUMIDITY_TOOLTIP =
+  "Umidade relativa (%) é a razão entre a quantidade de vapor d'água presente no ar e a quantidade máxima que o ar suportaria na mesma temperatura (ponto de saturação).";
+
+/** Explicação do Índice UV (pedido do usuário, 2026-08-16), para o tooltip do card no KPI — mesma escala usada pela badge de criticidade (`UvBadge`/`utils/uvIndex.ts`). */
+const UV_TOOLTIP =
+  "Índice UV mede a intensidade da radiação ultravioleta solar na superfície, numa escala de 0 a 11+ definida pela OMS. É calculado a partir da irradiância UV ponderada pela curva de ação eritêmica (sensibilidade da pele humana a cada comprimento de onda) — quanto maior o valor, maior o risco de queimadura em exposição direta.";
 
 const SENSORS: SensorDefinition[] = [
   { field: "temperature_c", sensor: "temperature", label: "Temperatura", unit: "°C" },
-  { field: "humidity_pct", sensor: "humidity", label: "Umidade", unit: "%" },
+  {
+    field: "humidity_pct",
+    sensor: "humidity",
+    label: "Umidade",
+    unit: "%",
+    tooltip: HUMIDITY_TOOLTIP,
+  },
   { field: "pressure_hpa", sensor: "pressure", label: "Pressão", unit: "hPa" },
   { field: "rain_mm", sensor: "rain", label: "Chuva", unit: "mm" },
-  { field: "uv_index", sensor: "uv", label: "Índice UV", unit: "" },
+  { field: "uv_index", sensor: "uv", label: "Índice UV", unit: "", tooltip: UV_TOOLTIP },
 ];
 
 /** Mesma árvore de classes de `StatCard.tsx` (`Card` padding/gap) — placeholder que ocupa o espaço final exato, sem layout shift quando os dados chegam. */
@@ -146,8 +170,16 @@ export function SensorGrid() {
     // na docstring acima).
     return (
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
-        {SENSORS.map(({ field, sensor, label, unit }) => (
-          <StatCard key={field} sensor={sensor} label={label} value={null} unit={unit} icon={PLACEHOLDER_ICON} />
+        {SENSORS.map(({ field, sensor, label, unit, tooltip }) => (
+          <StatCard
+            key={field}
+            sensor={sensor}
+            label={label}
+            value={null}
+            unit={unit}
+            icon={PLACEHOLDER_ICON}
+            tooltip={tooltip}
+          />
         ))}
       </div>
     );
@@ -166,16 +198,21 @@ export function SensorGrid() {
     <div className="flex flex-col gap-2">
       <ConnectionBanner show={isError} lastUpdatedAt={data.timestamp} />
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
-        {SENSORS.map(({ field, sensor, label, unit }) => (
-          <StatCard
-            key={field}
-            sensor={sensor}
-            label={label}
-            value={data[field]}
-            unit={unit}
-            icon={PLACEHOLDER_ICON}
-          />
-        ))}
+        {SENSORS.map(({ field, sensor, label, unit, tooltip }) => {
+          const value = data[field];
+          return (
+            <StatCard
+              key={field}
+              sensor={sensor}
+              label={label}
+              value={value}
+              unit={unit}
+              icon={PLACEHOLDER_ICON}
+              tooltip={tooltip}
+              badge={field === "uv_index" && value !== null ? <UvBadge value={value} /> : undefined}
+            />
+          );
+        })}
       </div>
     </div>
   );

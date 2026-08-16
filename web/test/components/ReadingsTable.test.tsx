@@ -25,6 +25,23 @@ describe("ReadingsTable", () => {
     expect(screen.getByText("5.3")).toBeInTheDocument();
   });
 
+  it("correção (feedback do usuário, 2026-08-16): cabeçalho mostra unidades com a caixa correta (hPa, mm), sem uppercase forçado", () => {
+    render(
+      <ReadingsTable
+        readings={historyFixture.readings}
+        page={1}
+        pageSize={50}
+        total={2}
+        onPageChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Pressão (hPa)" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Chuva (mm)" })).toBeInTheDocument();
+    const headerRow = screen.getAllByRole("row")[0]!;
+    expect(headerRow.closest("thead")).not.toHaveClass("uppercase");
+  });
+
   it("HIST-03: sensor nulo mostra '—', não '0'/'NaN'", () => {
     render(
       <ReadingsTable

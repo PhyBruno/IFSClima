@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Card } from "./Card";
+import { InfoTooltip } from "./InfoTooltip";
 
 /**
  * `StatCard` — card de sensor (docs/design-extraction.md §5.1).
@@ -61,6 +62,13 @@ import { Card } from "./Card";
  *   min/max da própria série (sem eixo). Com menos de 2 pontos não desenha
  *   nada (uma polyline de 1 ponto não é uma linha) em vez de arriscar um
  *   `NaN`/path degenerado.
+ *
+ * - **`badge`/`tooltip` (pedido do usuário, 2026-08-16)**: dois slots opcionais
+ *   ao lado do label, sem nenhuma lógica própria aqui — `StatCard` não sabe o
+ *   que é "criticidade OMS" nem "como a umidade é calculada", só reserva o
+ *   espaço. `badge` (ex. `UvBadge`) só aparece no estado normal (offline não
+ *   tem valor pra classificar); `tooltip` (texto → `InfoTooltip`) aparece nos
+ *   dois estados, por ser uma explicação do SENSOR, não do valor atual.
  *
  * - **Número tabular**: valor usa `font-bold tabular-nums` + leve
  *   `tracking` negativo (§2: `-0.02em` observado em 27px), evitando jitter
@@ -126,6 +134,18 @@ export interface StatCardProps {
   sparklinePoints?: number[];
   /** Texto livre pro estado offline, ex. "Última leitura há 3h". */
   lastSeenText?: string;
+  /**
+   * Badge livre ao lado do label, ex. `UvBadge` no card de Índice UV (pedido
+   * do usuário, 2026-08-16) — `StatCard` não sabe nada de criticidade OMS,
+   * só reserva o slot; quem decide o conteúdo é o chamador (`SensorGrid`).
+   */
+  badge?: ReactNode;
+  /**
+   * Texto de `InfoTooltip` ao lado do label explicando como o valor é
+   * calculado (pedido do usuário, 2026-08-16: Umidade e Índice UV). Omitido
+   * = sem ícone "i", igual a hoje para os demais sensores.
+   */
+  tooltip?: string;
   className?: string;
 }
 
@@ -182,6 +202,8 @@ export function StatCard({
   deltaText,
   sparklinePoints,
   lastSeenText,
+  badge,
+  tooltip,
   className = "",
 }: StatCardProps) {
   const offline = value === null;
@@ -206,7 +228,14 @@ export function StatCard({
         className={`flex flex-col gap-1.5 border-dashed !border-border-dashed !bg-surface-sidebar p-[11px] md:gap-2.5 md:p-4 ${className}`.trim()}
       >
         <div className="flex items-center justify-between">{iconChip}</div>
-        <p className="text-[11px] font-medium text-text-tertiary md:text-[12.5px]">{label}</p>
+        <p className="flex items-center gap-1 text-[11px] font-medium text-text-tertiary md:text-[12.5px]">
+          {label}
+          {tooltip ? (
+            <InfoTooltip label={`Como ${label.toLowerCase()} é calculado(a)`}>
+              {tooltip}
+            </InfoTooltip>
+          ) : null}
+        </p>
         <p className="text-sm font-medium text-text-tertiary">Sem sinal</p>
         {lastSeenText ? <p className="text-xs text-text-disabled">{lastSeenText}</p> : null}
       </Card>
@@ -229,7 +258,13 @@ export function StatCard({
           </span>
         ) : null}
       </div>
-      <p className="text-[11px] font-medium text-text-tertiary md:text-[12.5px]">{label}</p>
+      <p className="flex items-center gap-1 text-[11px] font-medium text-text-tertiary md:text-[12.5px]">
+        {label}
+        {tooltip ? (
+          <InfoTooltip label={`Como ${label.toLowerCase()} é calculado(a)`}>{tooltip}</InfoTooltip>
+        ) : null}
+        {badge}
+      </p>
       <p className="flex items-baseline gap-1">
         <span className="text-[20px] font-bold tabular-nums tracking-[-0.02em] text-text-primary md:text-[27px]">
           {value}

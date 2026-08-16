@@ -59,6 +59,20 @@ export default {
           negative: "var(--color-status-negative)",
           neutral: "var(--color-status-neutral)",
         },
+        // Badge de criticidade do Índice UV (escala OMS, pedido do usuário
+        // 2026-08-16) — ver `utils/uvIndex.ts` e `--color-uv-*` em theme.css.
+        uv: {
+          low: "var(--color-uv-low)",
+          "low-bg": "var(--color-uv-low-bg)",
+          moderate: "var(--color-uv-moderate)",
+          "moderate-bg": "var(--color-uv-moderate-bg)",
+          high: "var(--color-uv-high)",
+          "high-bg": "var(--color-uv-high-bg)",
+          "very-high": "var(--color-uv-very-high)",
+          "very-high-bg": "var(--color-uv-very-high-bg)",
+          extreme: "var(--color-uv-extreme)",
+          "extreme-bg": "var(--color-uv-extreme-bg)",
+        },
         nav: {
           "active-bg": "var(--color-nav-active-bg)",
           "active-text": "var(--color-nav-active-text)",
