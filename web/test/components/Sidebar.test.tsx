@@ -35,6 +35,16 @@ describe("Sidebar", () => {
     );
   });
 
+  it("mostra a logo institucional (dark e light) em vez do ícone genérico + 'IFSClima'", () => {
+    render(<Sidebar active="dashboard" />);
+
+    const logos = screen.getAllByRole("img", { name: /jaraguá centro/i });
+    expect(logos).toHaveLength(2);
+    expect(logos[0]).toHaveAttribute("src", "/jaragua-centro-logo-dark-theme.png");
+    expect(logos[1]).toHaveAttribute("src", "/jaragua-centro-logo-light-theme.png");
+    expect(screen.queryByText("IFSClima")).not.toBeInTheDocument();
+  });
+
   it("visível só a partir do breakpoint md (hidden no mobile)", () => {
     render(<Sidebar active="dashboard" />);
 

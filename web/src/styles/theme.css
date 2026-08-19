@@ -202,3 +202,20 @@
   --shadow-frame: 0 24px 48px rgba(15, 23, 42, 0.14);
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
+
+/* Logo da Sidebar por tema (pedido do usuário, 2026-08-19): duas <img>
+   estáticas em Sidebar.tsx, uma por tema, trocadas por display — MESMO
+   mecanismo `data-theme="light"` usado acima pras cores. Escuro é o default
+   (sem atributo), então .logo-light nasce oculta. */
+.logo-dark-theme {
+  display: block;
+}
+.logo-light-theme {
+  display: none;
+}
+[data-theme="light"] .logo-dark-theme {
+  display: none;
+}
+[data-theme="light"] .logo-light-theme {
+  display: block;
+}

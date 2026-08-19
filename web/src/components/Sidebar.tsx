@@ -76,21 +76,30 @@ export function Sidebar({ active, className = "" }: SidebarProps) {
       // compensar o que a sidebar deixa de ocupar no fluxo normal.
       className={`hidden shrink-0 flex-col gap-6 border-r border-border-default bg-surface-sidebar p-4 md:flex md:fixed md:inset-y-0 md:left-0 md:w-56 md:overflow-y-auto ${className}`.trim()}
     >
-      <div className="flex items-center gap-2 text-sm font-bold text-text-primary">
-        <span
-          aria-hidden="true"
-          // bg-nav-active-bg (feedback do usuário, 2026-07-24): `bg-surface-chip`
-          // é o chip neutro escuro (§1.1), errado aqui no light — este logo é
-          // sempre verde (`text-brand-primary`), então reaproveita o MESMO
-          // wash verde já usado no item de nav ativo (existe nos dois temas),
-          // em vez de inventar um token novo só pra este chip.
-          className="flex h-7 w-7 items-center justify-center rounded-10 bg-nav-active-bg text-brand-primary"
-        >
-          <svg viewBox="0 0 24 24" width={16} height={16} fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={2} />
-          </svg>
-        </span>
-        IFSClima
+      <div className="flex items-center">
+        {/*
+          Logo institucional por tema (pedido do usuário, 2026-08-19),
+          substitui o ícone genérico + "IFSClima". Troca dark/light via CSS
+          (.logo-dark-theme/.logo-light-theme em theme.css), mesmo mecanismo
+          data-theme já usado pras cores — sem estado React duplicado do que
+          o ThemeToggle já controla em document.documentElement.
+          Variação HORIZONTAL da marca (proporção ~3.2:1, pedido do usuário)
+          — h-12 + w-auto (nunca w-* fixo) preserva essa proporção original em
+          qualquer resolução; max-w-full evita overflow em telas estreitas.
+          h-12 (feedback do usuário, 2026-08-19): h-8 deixava vazio de sobra
+          antes do <div className="border-t"> logo abaixo (gap-6 fixo do
+          <aside> some visualmente melhor com a logo maior preenchendo a linha).
+        */}
+        <img
+          src="/jaragua-centro-logo-dark-theme.png"
+          alt="Jaraguá Centro"
+          className="logo-dark-theme h-12 w-auto max-w-full object-contain"
+        />
+        <img
+          src="/jaragua-centro-logo-light-theme.png"
+          alt="Jaraguá Centro"
+          className="logo-light-theme h-12 w-auto max-w-full object-contain"
+        />
       </div>
 
       <div className="border-t border-border-subtle" />
