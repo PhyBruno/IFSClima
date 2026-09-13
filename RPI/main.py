@@ -69,18 +69,33 @@ def _tentar_envio():
     # Envia em lotes (config.TAMANHO_LOTE_ENVIO) em vez de carregar o buffer
     # inteiro de uma vez: se a estação ficou muito tempo offline, carregar
     # tudo + serializar o JSON simultaneamente pode estourar a RAM do Pico.
+    # Sem 'network'/'requests' (ex.: Pico 1 de bancada, ou 'requests' não
+    # instalado) não há como enviar. Isso NÃO é erro fatal: o buffer fica
+    # intacto e a estação continua medindo e gravando na flash.
+    if not uploader.DISPONIVEL:
+        print("Envio indisponivel:", uploader.motivo_indisponivel())
+        return False
+
     if storage.contar() == 0:
         return True
 
     enviados_total = 0
     while True:
         try:
-            pendentes = storage.carregar_lote(config.TAMANHO_LOTE_ENVIO)
+            pendentes, linhas = storage.carregar_lote(config.TAMANHO_LOTE_ENVIO)
         except Exception as e:
             print("Falha ao carregar buffer:", e)
             return False
-        if not pendentes:
+        if linhas == 0:
             break
+
+        if not pendentes:
+            # Lote inteiro corrompido: descarta essas linhas e segue. Sem isto
+            # elas travariam o início do buffer para sempre, pois nunca seriam
+            # enviadas nem removidas.
+            print("Descartando", linhas, "linha(s) corrompida(s) do buffer.")
+            storage.remover_inicio(linhas)
+            continue
 
         print("Tentando enviar", len(pendentes), "leitura(s)...")
         try:
@@ -93,7 +108,10 @@ def _tentar_envio():
             print("Envio falhou. Buffer mantido para a proxima hora.")
             return False
 
-        storage.remover_inicio(len(pendentes))  # sucesso (2xx) -> só agora remove o lote
+        # Remove 'linhas' (e não len(pendentes)): se houver linha corrompida no
+        # meio do lote, remover só as válidas faria a leitura seguinte
+        # escorregar para o próximo lote e ser ENVIADA DUAS VEZES.
+        storage.remover_inicio(linhas)  # sucesso (2xx) -> só agora remove o lote
         enviados_total += len(pendentes)
 
     print("Envio OK. Buffer esvaziado. Total enviado:", enviados_total)

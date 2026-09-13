@@ -2,7 +2,7 @@
 #
 # CONTRATO: cada sensor é um arquivo próprio em sensors/ que expõe:
 #     NOME  -> str
-#     ler() -> dict com as grandezas lidas (ex.: {"temperatura_c": 21.4})
+#     ler() -> dict com as grandezas lidas (ex.: {"temperature_c": 21.4})
 #
 # Para adicionar um sensor (ex.: o de vento, quando chegar): copie
 # sensors/_template.py, preencha, e acrescente o import abaixo. Se um sensor

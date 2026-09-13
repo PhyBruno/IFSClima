@@ -1,20 +1,45 @@
 # uploader.py — conecta ao Wi-Fi, sincroniza a hora (NTP) e envia à API.
 # Só retorna True se a API responder com sucesso (2xx — o contrato usa 202 Accepted).
-import network
 import time
 import json
 import config
+
+# IMPORTS OPCIONAIS: 'network' só existe em placas com Wi-Fi (Pico W / Pico 2 W)
+# e 'requests' pode não estar instalado. Se qualquer um faltar, o import deste
+# módulo NÃO pode explodir — senão main.py morre no arranque e a estação para
+# de ler sensores por causa de um problema de rede. Sem eles, o envio apenas
+# desliga: a estação continua medindo e acumulando na flash.
+try:
+    import network
+except ImportError:
+    network = None
 
 # Em builds recentes o módulo se chama 'requests'; em antigos, 'urequests'.
 try:
     import requests
 except ImportError:
-    import urequests as requests
+    try:
+        import urequests as requests
+    except ImportError:
+        requests = None
+
+
+DISPONIVEL = (network is not None) and (requests is not None)
+
+
+def motivo_indisponivel():
+    faltando = []
+    if network is None:
+        faltando.append("network (placa sem Wi-Fi?)")
+    if requests is None:
+        faltando.append("requests (rode: import mip; mip.install('requests'))")
+    return ", ".join(faltando)
 
 
 def _conectar_wifi():
-    wlan = network.WLAN(network.STA_IF)
+    wlan = None
     try:
+        wlan = network.WLAN(network.STA_IF)
         wlan.active(True)
         if not wlan.isconnected():
             wlan.connect(config.WIFI_SSID, config.WIFI_PASS)
@@ -34,6 +59,8 @@ def _conectar_wifi():
 def desligar_wifi(wlan):
     # IMPORTANTE antes do deepsleep: se o rádio ficar ativo, o Pico pode
     # acordar sozinho na hora errada.
+    if wlan is None:
+        return
     try:
         wlan.disconnect()
     except Exception:
@@ -89,6 +116,10 @@ def sincronizar_hora_inicial():
     horário (após já terem sido gravadas leituras com timestamp
     relativo/incorreto no buffer, o que fica errado PARA SEMPRE, pois a
     dedupe da API é por timestamp). Retorna True se conseguiu sincronizar."""
+    if not DISPONIVEL:
+        print("Sync de hora indisponivel:", motivo_indisponivel())
+        return False
+
     wlan, ok = _conectar_wifi()
     sincronizou = False
     if ok:
@@ -107,6 +138,10 @@ def enviar(leituras):
     """Envia a lista de leituras. Retorna True SOMENTE com HTTP 2xx (a API usa 202)."""
     if not leituras:
         return True  # nada a enviar = sucesso (nada a apagar)
+
+    if not DISPONIVEL:
+        print("Envio indisponivel:", motivo_indisponivel())
+        return False
 
     wlan, ok = _conectar_wifi()
     if not ok:
