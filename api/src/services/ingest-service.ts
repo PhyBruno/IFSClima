@@ -31,6 +31,9 @@ export const PHYSICAL_RANGES = {
   pressure_hpa: [300, 1100],
   rain_mm: [0, Infinity],
   uv_index: [0, 20],
+  // Tensao no ADC: limitada pela referencia da placa (3,3 V no Pico). O teto de
+  // 5 V cobre tambem placas de 5 V sem deixar passar lixo obvio.
+  uv_voltage_v: [0, 5],
 } as const;
 
 /** Tolerância de clock: timestamp mais que isso no futuro é rejeitado (ING-10). */
@@ -86,6 +89,7 @@ function toNewReadingRow(
     pressureHpa: reading.pressure_hpa ?? null,
     rainMm: reading.rain_mm ?? null,
     uvIndex: reading.uv_index ?? null,
+    uvVoltageV: reading.uv_voltage_v ?? null,
   };
 }
 

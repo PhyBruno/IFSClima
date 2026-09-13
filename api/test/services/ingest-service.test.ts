@@ -16,6 +16,8 @@ class FakeReadingRepository implements ReadingRepository {
   private readonly persisted = new Set<string>();
   ensureStationCalls = 0;
   insertCalls = 0;
+  /** Linhas da última chamada a `insertIgnoreConflicts`. */
+  lastRows: NewReadingRow[] = [];
 
   async ensureStation(id: string): Promise<void> {
     this.ensureStationCalls += 1;
@@ -24,6 +26,7 @@ class FakeReadingRepository implements ReadingRepository {
 
   async insertIgnoreConflicts(rows: NewReadingRow[]): Promise<number> {
     this.insertCalls += 1;
+    this.lastRows = rows;
     let inserted = 0;
 
     for (const row of rows) {
@@ -47,6 +50,7 @@ function reading(overrides: Partial<IngestRequest["readings"][number]> = {}) {
     pressure_hpa: 1013.4,
     rain_mm: 0.4,
     uv_index: 5.3,
+    uv_voltage_v: 0.632,
     ...overrides,
   };
 }
@@ -171,6 +175,8 @@ describe("IngestService (T3.3 — ING-01, ING-03, ING-07, ING-09, ING-10)", () =
     ["rain_mm", -0.01],
     ["uv_index", -0.01],
     ["uv_index", 20.01],
+    ["uv_voltage_v", -0.01],
+    ["uv_voltage_v", 5.01],
   ] as const)("ING-07: rejeita %s fora da faixa física (%f)", async (field, value) => {
     const repo = new FakeReadingRepository();
     const service = createIngestService(repo, () => NOW);
@@ -195,6 +201,8 @@ describe("IngestService (T3.3 — ING-01, ING-03, ING-07, ING-09, ING-10)", () =
     ["rain_mm", 0],
     ["uv_index", 0],
     ["uv_index", 20],
+    ["uv_voltage_v", 0],
+    ["uv_voltage_v", 5],
   ] as const)("ING-07: aceita %s no limite exato da faixa física (%f)", async (field, value) => {
     const repo = new FakeReadingRepository();
     const service = createIngestService(repo, () => NOW);
@@ -247,6 +255,7 @@ describe("IngestService (T3.3 — ING-01, ING-03, ING-07, ING-09, ING-10)", () =
           pressure_hpa: null,
           rain_mm: null,
           uv_index: null,
+          uv_voltage_v: null,
         }),
       ],
     });
@@ -279,6 +288,32 @@ describe("IngestService (T3.3 — ING-01, ING-03, ING-07, ING-09, ING-10)", () =
 
     expect(repo.ensureStationCalls).toBe(1);
     expect(repo.stations.has("main")).toBe(true);
+  });
+});
+
+describe("uv_voltage_v (tensao bruta do sensor UV)", () => {
+  it("persiste a tensao bruta junto com o indice", async () => {
+    const repo = new FakeReadingRepository();
+    const service = createIngestService(repo, () => NOW);
+
+    await service.ingest({
+      station_id: "main",
+      readings: [reading({ uv_index: 5.3, uv_voltage_v: 0.632 })],
+    });
+
+    expect(repo.lastRows[0]?.uvVoltageV).toBe(0.632);
+    expect(repo.lastRows[0]?.uvIndex).toBe(5.3);
+  });
+
+  it("persiste null quando a estacao nao manda a tensao (sensor UV ausente)", async () => {
+    const repo = new FakeReadingRepository();
+    const service = createIngestService(repo, () => NOW);
+    const semTensao = reading();
+    delete (semTensao as Record<string, unknown>).uv_voltage_v;
+
+    await service.ingest({ station_id: "main", readings: [semTensao] });
+
+    expect(repo.lastRows[0]?.uvVoltageV).toBeNull();
   });
 });
 

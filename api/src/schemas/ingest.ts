@@ -22,6 +22,7 @@ export const readingSchema = z.object({
   pressure_hpa: z.number().nullish(),
   rain_mm: z.number().nullish(),
   uv_index: z.number().nullish(),
+  uv_voltage_v: z.number().nullish(),
 });
 
 /** Contrato do corpo de `POST /api/v1/ingest` (PROJECT.md). */

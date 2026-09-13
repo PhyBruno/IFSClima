@@ -13,6 +13,8 @@ export interface NewReadingRow {
   pressureHpa: number | null;
   rainMm: number | null;
   uvIndex: number | null;
+  /** Tensao bruta do sensor UV — ver comentario em `db/schema.ts`. */
+  uvVoltageV: number | null;
 }
 
 /** Última leitura de uma estação (T4.2 — READ-01, READ-02). */

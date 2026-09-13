@@ -34,6 +34,12 @@ export const readings = pgTable(
     pressureHpa: real("pressure_hpa"),
     rainMm: real("rain_mm"),
     uvIndex: real("uv_index"),
+    // Tensao bruta lida no ADC para o sensor UV. O uv_index e derivado dela por
+    // uma tabela de limiares que depende do GANHO do modulo (clones do
+    // GUVA-S12SD variam), e a conversao e quantizada: do indice nao se volta
+    // para a tensao. Guardar o valor bruto permite reprocessar o historico de
+    // UV se a calibracao mudar. Nulo quando nao ha sensor UV.
+    uvVoltageV: real("uv_voltage_v"),
     receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" })
       .notNull()
       .default(sql`now()`),

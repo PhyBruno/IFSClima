@@ -8,7 +8,30 @@ const validReading = {
   pressure_hpa: 1013.4,
   rain_mm: 0.4,
   uv_index: 5.3,
+  uv_voltage_v: 0.632,
 };
+
+describe("readingSchema — uv_voltage_v (tensao bruta do sensor UV)", () => {
+  it("preserva a tensao bruta em vez de descartá-la", () => {
+    const result = readingSchema.safeParse(validReading);
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.uv_voltage_v).toBe(0.632);
+  });
+
+  it("aceita a leitura sem a tensao bruta (estacao antiga, ou sem sensor UV)", () => {
+    const semTensao: Record<string, unknown> = { ...validReading };
+    delete semTensao.uv_voltage_v;
+
+    expect(readingSchema.safeParse(semTensao).success).toBe(true);
+  });
+
+  it("rejeita tensao com tipo errado", () => {
+    const result = readingSchema.safeParse({ ...validReading, uv_voltage_v: "0.632" });
+
+    expect(result.success).toBe(false);
+  });
+});
 
 describe("readingSchema (T3.1 — ING-06)", () => {
   it("aceita uma leitura válida com todos os sensores presentes", () => {

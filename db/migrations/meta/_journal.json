@@ -8,6 +8,13 @@
       "when": 1784833700287,
       "tag": "0000_big_viper",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789263728678,
+      "tag": "0001_misty_luke_cage",
+      "breakpoints": true
     }
   ]
 }

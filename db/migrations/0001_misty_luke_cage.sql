@@ -1,0 +1,1 @@
+ALTER TABLE "readings" ADD COLUMN "uv_voltage_v" real;

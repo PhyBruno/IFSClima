@@ -5,8 +5,10 @@
 # baseados nesse sensor (estilo DFRobot).
 #
 # CALIBRAÇÃO: o ganho varia de placa para placa. Se os valores não baterem com
-# um medidor de referência, ajuste _LIMIARES_MV. Guardamos também a tensão bruta
-# ("uv_tensao_v") justamente para permitir recalibrar depois.
+# um medidor de referência, ajuste _LIMIARES_MV. Enviamos também a tensão bruta
+# em "uv_voltage_v", que a API grava em coluna própria: o índice é quantizado em
+# 12 degraus e não permite voltar à tensão, então sem o valor bruto um erro de
+# calibração tornaria TODO o histórico de UV irrecuperável.
 #
 # Dica: à noite o valor fica ~0; teste sob sol para ver a resposta.
 from machine import ADC
@@ -40,5 +42,5 @@ def ler():
 
     return {
         "uv_index": _indice_uv(mv),
-        "uv_tensao_v": round(tensao, 3),
+        "uv_voltage_v": round(tensao, 3),
     }
