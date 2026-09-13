@@ -30,6 +30,7 @@ AMOSTRAS_ADC = 64            # média por amostra, para baixar o ruído do ADC
 LINHAS_POR_GRAVACAO = 10     # grava e fecha a cada 10 s: corte de energia perde 10 s, não o arquivo
 
 LED_PIN = 25                 # LED embutido do Pico 1 (RP2040, não-W)
+LED_NOME = "LED"             # nome simbólico: é o caminho certo nas placas W
 
 # Mapa mV -> período de pisca. Em plena luz o LED pisca quase contínuo; no
 # escuro, uma piscada lenta só para dizer "estou vivo".
@@ -39,10 +40,35 @@ MV_SATURACAO = 1000.0        # a partir daqui pisca no máximo
 
 _adc = ADC(config.UV_GUVA_ADC)
 
-try:
-    _led = Pin(LED_PIN, Pin.OUT)
-except Exception:
-    _led = None
+def _abrir_led():
+    """Abre o LED embutido na placa que estiver rodando.
+
+    No Pico 1 o LED é o GP25. No Pico W e no Pico 2 W NÃO é: lá o LED pertence
+    ao chip de rádio CYW43, e o GP25 é o CHIP-SELECT desse chip. Acionar o 25
+    numa placa W não acende nada — e ainda fica cutucando o barramento do
+    rádio. Daí a ordem: nome simbólico primeiro (funciona nas placas W e nos
+    builds recentes do Pico 1), GP25 só como reserva, e só se a placa não for W
+    (o MicroPython v1.19.1 do Pico 1 de bancada não conhece o nome "LED").
+
+    Sem LED o registrador continua gravando; ele só perde o display de campo.
+    """
+    try:
+        return Pin(LED_NOME, Pin.OUT)
+    except Exception:
+        pass
+    try:
+        import os
+        if "W" in os.uname().machine.split():
+            return None          # placa W sem nome "LED": nao arriscar o GP25
+    except Exception:
+        pass
+    try:
+        return Pin(LED_PIN, Pin.OUT)
+    except Exception:
+        return None
+
+
+_led = _abrir_led()
 
 
 def _ler_mv():
@@ -81,7 +107,14 @@ _adc_temp = ADC(4)               # sensor de temperatura interno do RP2040
 
 
 def _temp_interna():
-    """Temperatura do die do RP2040. Fórmula do datasheet (seção 4.9.5)."""
+    """Temperatura do die, pela fórmula do datasheet do RP2040 (seção 4.9.5).
+
+    AO MIGRAR PARA O PICO 2 W: confira as constantes no datasheet do RP2350
+    antes de confiar no valor absoluto. Isto aqui é canal de CONTROLE (serve
+    para ver se a tensão do UV está subindo junto com a temperatura), e para
+    esse uso o que importa é a variação, não o valor absoluto — então um erro
+    de constante não invalida o ensaio, só desloca a escala.
+    """
     v = _adc_temp.read_u16() / 65535 * config.UV_ADC_VREF
     return 27.0 - (v - 0.706) / 0.001721
 
