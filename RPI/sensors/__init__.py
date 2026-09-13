@@ -35,11 +35,18 @@ try:
 except Exception as e:
     print("Sensor rain_gauge nao carregado:", e)
 
-try:
-    from . import uv_guva
-    _registrar(uv_guva)
-except Exception as e:
-    print("Sensor uv_guva nao carregado:", e)
+# DESATIVADO ate o sensor UV existir fisicamente.
+# O GUVA-S12SD e analogico: sem nada ligado no ADC o pino fica flutuando e a
+# leitura devolve algo como uv_index=1 / uv_tensao_v=0.317 - um valor plausivel
+# e completamente inventado, que entra no historico como se fosse medicao.
+# E o mesmo principio que bme280.py aplica ao omitir humidity_pct num BMP280:
+# melhor nao ter o campo do que ter um campo mentiroso.
+# Para reativar: ligue o sensor em GP26 e descomente as 5 linhas abaixo.
+# try:
+#     from . import uv_guva
+#     _registrar(uv_guva)
+# except Exception as e:
+#     print("Sensor uv_guva nao carregado:", e)
 
 # Quando comprar o sensor de vento, descomente:
 # try:
