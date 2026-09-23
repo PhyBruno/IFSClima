@@ -22,9 +22,12 @@ constexpr bool MODO_ECONOMIA = true;
 // quando a estação ficou muito tempo offline.
 constexpr uint32_t TAMANHO_LOTE_ENVIO = 50;
 
-// Teto do buffer em flash. 5000 leituras ≈ 52 dias offline ≈ 900 KB
-// (a partição padrão de 4 MB deixa ~1,4 MB para o LittleFS). 0 = sem limite.
+// Tetos do buffer em flash (o que vier primeiro). A remoção reescreve o buffer
+// num .tmp, então o buffer e o .tmp precisam caber JUNTOS no LittleFS
+// (1,875 MB com a partição no_ota.csv): o teto em bytes fica em ~40% dele.
+// ~780 KB ≈ 4500 leituras de ~175 B ≈ 47 dias offline. 0 = sem limite.
 constexpr uint32_t MAX_LEITURAS_BUFFER = 5000;
+constexpr uint32_t MAX_BYTES_BUFFER = 780 * 1024;
 constexpr const char* ARQ_DADOS = "/buffer.jsonl";
 
 // Sincroniza o NTP a cada envio; mesmo com o buffer vazio, liga o Wi-Fi para

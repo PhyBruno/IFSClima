@@ -11,6 +11,12 @@ namespace core {
 // arquivo inteiro na RAM (o buffer pode ter ~900 KB).
 class LeitorLinhas {
  public:
+  // Linhas maiores que isto são cortadas (o resto até o '\n' é descartado):
+  // um trecho corrompido sem quebra não pode crescer a string até acabar o
+  // heap. Uma leitura real tem ~200 B; a cortada vira JSON inválido e é
+  // tratada como corrompida.
+  static constexpr size_t MAX_LINHA = 2048;
+
   explicit LeitorLinhas(IArquivo& arquivo);
 
   // Próxima linha, sem o '\n'. 'completa' = a linha terminava em '\n'

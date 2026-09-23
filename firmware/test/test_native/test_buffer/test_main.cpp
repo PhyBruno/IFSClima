@@ -155,8 +155,57 @@ void test_invalidar_contagem_reconta_do_arquivo() {
   TEST_ASSERT_EQUAL_UINT32(2, b.contar());
 }
 
+void test_remover_inicio_sem_espaco_apaga_o_tmp() {
+  // Revisão C1: flash cheia no meio da reescrita. O .tmp parcial não pode
+  // ficar ocupando o espaço livre (senão todo adicionar seguinte falha).
+  testsupport::SistemaArquivosMemoria fs;
+  core::Buffer b(fs, ARQ, 5000);
+  for (int i = 0; i < 3; ++i) b.adicionar(leitura(i));
+  const std::string antes = fs.arquivos[ARQ];
+  fs.capacidade = antes.size() + 10;  // não cabe o .tmp com 2 linhas
+  TEST_ASSERT_FALSE(b.removerInicio(1));
+  TEST_ASSERT_FALSE(fs.existe(TMP));
+  TEST_ASSERT_EQUAL_STRING(antes.c_str(), fs.arquivos[ARQ].c_str());
+  TEST_ASSERT_EQUAL_UINT32(3, b.contar());
+}
+
+void test_teto_por_bytes_mantem_espaco_para_o_tmp() {
+  // Revisão C1: o buffer e o .tmp da remoção precisam caber juntos na
+  // partição. Um teto em bytes descarta as mais antigas (10% por vez).
+  testsupport::SistemaArquivosMemoria fs;
+  const size_t linha = leitura(10).size() + 1;
+  core::Buffer b(fs, ARQ, 0, 10 * linha);
+  for (int i = 10; i < 21; ++i) b.adicionar(leitura(i));  // 11 linhas > 10 linhas de teto
+  TEST_ASSERT_TRUE(fs.arquivos[ARQ].size() <= 10 * linha);
+  TEST_ASSERT_EQUAL_UINT32(9, b.contar());
+  TEST_ASSERT_EQUAL_STRING(leitura(12).c_str(), b.carregarLote(1).leituras[0].c_str());
+}
+
+void test_linha_gigante_sem_quebra_nao_estoura_a_ram() {
+  // Revisão: trecho corrompido sem '\n' não pode crescer a string até acabar
+  // o heap (loop de panic no boot). A linha é cortada no limite, conta como
+  // corrompida, e a leitura seguinte sobrevive.
+  testsupport::SistemaArquivosMemoria fs;
+  fs.arquivos[ARQ] = std::string(10000, 'x') + "\n" + leitura(1) + "\n";
+  auto f = fs.abrir(ARQ, 'r');
+  core::LeitorLinhas lr(*f);
+  std::string linha;
+  bool completa = false;
+  TEST_ASSERT_TRUE(lr.proxima(linha, completa));
+  TEST_ASSERT_TRUE(linha.size() <= core::LeitorLinhas::MAX_LINHA);
+  TEST_ASSERT_TRUE(lr.proxima(linha, completa));
+  TEST_ASSERT_EQUAL_STRING(leitura(1).c_str(), linha.c_str());
+  core::Buffer b(fs, ARQ, 5000);
+  const core::Buffer::Lote l = b.carregarLote(50);
+  TEST_ASSERT_EQUAL_UINT32(1, l.leituras.size());
+  TEST_ASSERT_EQUAL_UINT32(2, l.linhasLidas);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_remover_inicio_sem_espaco_apaga_o_tmp);
+  RUN_TEST(test_teto_por_bytes_mantem_espaco_para_o_tmp);
+  RUN_TEST(test_linha_gigante_sem_quebra_nao_estoura_a_ram);
   RUN_TEST(test_primeiro_boot_sem_arquivo);
   RUN_TEST(test_adicionar_e_contar);
   RUN_TEST(test_linha_truncada_por_queda_de_energia_e_fechada);

@@ -115,8 +115,21 @@ void test_sem_arquivo_nao_falha() {
   TEST_ASSERT_EQUAL_UINT32(0, r.datadas);
 }
 
+void test_sem_espaco_apaga_o_tmp_e_preserva_o_buffer() {
+  // Revisão C1: flash cheia durante a reescrita — falha limpa, sem .tmp órfão.
+  testsupport::SistemaArquivosMemoria fs;
+  fs.arquivos[ARQ] = "{\"chuva_tips\":1,\"_boot\":7,\"_up_ms\":5000}\n";
+  const std::string antes = fs.arquivos[ARQ];
+  fs.capacidade = antes.size() + 5;
+  const core::ResultadoPendentes r = core::resolverPendentes(fs, ARQ, 7, REF, 0.2);
+  TEST_ASSERT_FALSE(r.ok);
+  TEST_ASSERT_FALSE(fs.existe("/buffer.jsonl.tmp"));
+  TEST_ASSERT_EQUAL_STRING(antes.c_str(), fs.arquivos[ARQ].c_str());
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_sem_espaco_apaga_o_tmp_e_preserva_o_buffer);
   RUN_TEST(test_detecta_pendentes);
   RUN_TEST(test_data_pendente_do_boot_atual);
   RUN_TEST(test_boot_antigo_e_descartado_e_chuva_vai_para_a_proxima);

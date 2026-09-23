@@ -48,7 +48,7 @@ firmware/
   lib/core/src/
     core_attr.h                        CORE_IRAM (IRAM_ATTR só no ESP32)
     texto.h / texto.cpp                aparar(), arredondar()
-    schedule.h / schedule.cpp          proximoAlvo()
+    agenda.h / agenda.cpp              proximoAlvo()  (era "schedule": o MinGW tem um <schedule.h> de sistema)
     iso_time.h / iso_time.cpp          formatarIso(), epochDaDataDeBuild(), RefHora, epochMsEm()
     rain_logic.h / rain_logic.cpp      ContadorChuva
     rtc_state.h / rtc_state.cpp        EstadoRtc, selarRtc(), lerRtc()
@@ -3796,7 +3796,7 @@ Expected: `SUCCESS` em todos.
 
 - [ ] **Step 9: Validar na placa (conjunto com o usuário)**
 
-1. `b0`: `platformio.exe run -e bench_b0_placa -t upload && platformio.exe device monitor`. Esperado: ESP32-D0WD-V3 rev 3.1, flash 4194304, partição `spiffs`/LittleFS com ~1,4 MB.
+1. `b0`: `platformio.exe run -e bench_b0_placa -t upload && platformio.exe device monitor`. Esperado: ESP32-D0WD-V3 rev 3.1, flash 4194304, partição `spiffs`/LittleFS com 1966080 bytes (tabela `no_ota.csv`, sem OTA).
 2. Pedir ao usuário para ligar o BME280 (3V3, GND, SDA→21, SCL→22). Rodar `b1`: repouso 1/1 e `0x76 encontrado` + chip_id.
 3. `b2`: temperatura plausível; pedir para bafejar e confirmar a subida da umidade.
 4. Pedir ao usuário para ligar o GUVA (3V3, GND, OUT→33). Rodar `b5`: "NAO segue o pull"; anotar o piso no escuro; ao sol, a tensão sobe e cai ao tapar.
@@ -4006,6 +4006,14 @@ void dormirAte(uint64_t alvoUptimeMs, bool economia) {
     if (agora >= alvoUptimeMs) return;
     const uint64_t restante = alvoUptimeMs - agora;
     if (!economia) {
+      // Só no modo debug (acordado): 'R' pela Serial força um reset POR
+      // SOFTWARE — é assim que se testa a restauração dos tips da RTC memory
+      // (o botão EN gera POWERON_RESET, que zera a RTC memory de propósito).
+      if (Serial.available() && Serial.read() == 'R') {
+        Serial.println("[INFO] reset por software pedido pela Serial");
+        Serial.flush();
+        ESP.restart();
+      }
       delay(restante > 1000 ? 1000 : static_cast<uint32_t>(restante));
       wdtAlimentar();
       continue;
@@ -4571,9 +4579,29 @@ git push origin main
 
 **Files:**
 - Modify: `firmware/src/app/main.cpp` (substitui o provisório)
+- Modify: `firmware/include/config.h` (override `CFG_MODO_ECONOMIA`), `firmware/platformio.ini` (env `esp32_debug`)
 
 **Interfaces:**
 - Consumes: tudo das Tasks 2–13 com as assinaturas declaradas acima.
+
+- [ ] **Step 0: Env de debug sem lightsleep (para o teste de reset por software)**
+
+Em `firmware/include/config.h`, trocar `constexpr bool MODO_ECONOMIA = true;` por:
+
+```cpp
+#ifndef CFG_MODO_ECONOMIA
+#define CFG_MODO_ECONOMIA 1
+#endif
+constexpr bool MODO_ECONOMIA = CFG_MODO_ECONOMIA != 0;
+```
+
+Em `firmware/platformio.ini`, depois do `[env:esp32_rapido]`:
+
+```ini
+[env:esp32_debug]
+extends = env:esp32
+build_flags = ${common_esp32.build_flags} -DCFG_INTERVALO_LEITURA_MIN=1 -DCFG_LEITURAS_POR_ENVIO=2 -DCFG_MODO_ECONOMIA=0
+```
 
 - [ ] **Step 1: Escrever o `main.cpp` definitivo**
 
@@ -4606,7 +4634,7 @@ git push origin main
 #include "pendentes.h"
 #include "rain_hal.h"
 #include "rtc_hal.h"
-#include "schedule.h"
+#include "agenda.h"
 #include "secrets.h"
 #include "sensor.h"
 #include "sensores_hal.h"
@@ -4619,7 +4647,7 @@ const uint64_t INTERVALO_MS = static_cast<uint64_t>(INTERVALO_LEITURA_MIN) * 60 
 const uint64_t RESYNC_MS = static_cast<uint64_t>(RESYNC_NTP_MAX_H) * 3600 * 1000;
 
 hal::SistemaArquivosLittleFs g_fs;
-core::Buffer g_buffer(g_fs, ARQ_DADOS, MAX_LEITURAS_BUFFER);
+core::Buffer g_buffer(g_fs, ARQ_DADOS, MAX_LEITURAS_BUFFER, MAX_BYTES_BUFFER);
 
 hal::SensorBme280 g_bme(Wire, BME280_ADDR);
 hal::SensorChuva g_chuva(MM_PER_TIP);
@@ -4789,7 +4817,7 @@ Critérios (observar por ~5 min):
 - [ ] **Step 4: Validar os cenários de falha**
 
 1. **Sem hora no boot:** pôr um SSID inexistente no `secrets.h`, gravar o `esp32_rapido`, esperar 2 leituras. Elas saem com `_boot`/`_up_ms` e sem `timestamp`, e aparece `sem Wi-Fi: buffer mantido`. Restaurar o SSID correto e gravar **sem apagar a flash**. No boot, `pendentes: 0 datadas, 2 descartadas (boot antigo)`, porque o boot mudou: comportamento esperado. Os `chuva_tips` delas vão para a leitura seguinte.
-2. **Reset no meio:** com o ciclo normal rodando, acionar o ímã 2 vezes e apertar EN antes da próxima leitura. No boot: `2 tip(s) de chuva restaurados da RTC memory`, e a leitura seguinte traz `chuva_tips` ≥ 2.
+2. **Reset por software no meio:** gravar o `esp32_debug` (ciclo de 1 min, SEM lightsleep), acionar o ímã 2 vezes e, antes da próxima leitura, enviar `R` pela Serial. No boot: `2 tip(s) de chuva restaurados da RTC memory`, e a leitura seguinte traz `chuva_tips` ≥ 2. **Não use o botão EN**: no ESP32 ele gera `POWERON_RESET`, e o `rtcIniciar(true)` zera a RTC memory de propósito (spec: os tips sobrevivem a reset por software/watchdog, não a queda de energia). Depois, apertar EN e conferir que NÃO há restauração (0 tips).
 3. **API fora:** trocar `API_URL` por um host inexistente. O envio falha, o buffer cresce, e a estação continua lendo. Restaurar a URL e ver o buffer esvaziar.
 
 - [ ] **Step 5: Gravar o firmware de produção**

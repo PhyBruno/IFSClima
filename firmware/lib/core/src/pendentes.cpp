@@ -37,7 +37,10 @@ ResultadoPendentes resolverPendentes(ISistemaArquivos& fs, const std::string& ca
       return r;
     }
     auto out = fs.abrir(tmp.c_str(), 'w');
-    if (!out) return r;
+    if (!out) {
+      fs.remover(tmp.c_str());
+      return r;
+    }
     LeitorLinhas lr(*in);
     std::string linha;
     bool completa;
@@ -73,7 +76,12 @@ ResultadoPendentes resolverPendentes(ISistemaArquivos& fs, const std::string& ca
         saida = l;
       }
       saida.push_back('\n');
-      if (out->escrever(reinterpret_cast<const uint8_t*>(saida.data()), saida.size()) != saida.size()) return r;
+      if (out->escrever(reinterpret_cast<const uint8_t*>(saida.data()), saida.size()) != saida.size()) {
+        out.reset();
+        // Flash cheia: o .tmp parcial não pode ficar ocupando o espaço livre.
+        fs.remover(tmp.c_str());
+        return r;
+      }
     }
   }
   if (!fs.renomear(tmp.c_str(), caminho.c_str())) {

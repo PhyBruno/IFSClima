@@ -13,8 +13,14 @@ bool leituraValida(const std::string& linha) {
   return doc.is<JsonObject>() && doc["timestamp"].is<const char*>();
 }
 
-Buffer::Buffer(ISistemaArquivos& fs, std::string caminho, uint32_t maxLinhas)
-    : fs_(fs), caminho_(caminho), tmp_(caminho + ".tmp"), max_(maxLinhas), contagemConhecida_(false), n_(0) {}
+Buffer::Buffer(ISistemaArquivos& fs, std::string caminho, uint32_t maxLinhas, uint32_t maxBytes)
+    : fs_(fs),
+      caminho_(caminho),
+      tmp_(caminho + ".tmp"),
+      max_(maxLinhas),
+      maxBytes_(maxBytes),
+      contagemConhecida_(false),
+      n_(0) {}
 
 void Buffer::invalidarContagem() { contagemConhecida_ = false; }
 
@@ -73,7 +79,11 @@ bool Buffer::adicionar(const std::string& linhaJson) {
   contagemConhecida_ = true;
   // Teto: descarta um BLOCO das mais antigas de uma vez (não 1 por leitura —
   // parado no teto, reescreveria o arquivo inteiro a cada 15 min).
-  if (max_ != 0 && n_ > max_) removerInicio(n_ - max_ * 9 / 10);
+  if (max_ != 0 && n_ > max_) {
+    removerInicio(n_ - max_ * 9 / 10);
+  } else if (maxBytes_ != 0 && fs_.tamanho(caminho_.c_str()) > static_cast<long>(maxBytes_)) {
+    removerInicio(n_ / 10 + 1);  // teto em bytes: descarta as 10% mais antigas
+  }
   return true;
 }
 
@@ -105,6 +115,7 @@ bool Buffer::removerInicio(uint32_t quantas) {
     }
     auto out = fs_.abrir(tmp_.c_str(), 'w');
     if (!out) {
+      fs_.remover(tmp_.c_str());
       invalidarContagem();
       return false;
     }
@@ -112,6 +123,7 @@ bool Buffer::removerInicio(uint32_t quantas) {
     std::string linha;
     bool completa;
     uint32_t puladas = 0;
+    bool falhou = false;
     while (lr.proxima(linha, completa)) {
       if (aparar(linha).empty()) continue;
       if (puladas < quantas) {
@@ -120,10 +132,17 @@ bool Buffer::removerInicio(uint32_t quantas) {
       }
       linha.push_back('\n');
       if (out->escrever(reinterpret_cast<const uint8_t*>(linha.data()), linha.size()) != linha.size()) {
-        invalidarContagem();
-        return false;
+        falhou = true;
+        break;
       }
       ++mantidas;
+    }
+    if (falhou) {
+      out.reset();
+      // Flash cheia: o .tmp parcial não pode ficar ocupando o espaço livre.
+      fs_.remover(tmp_.c_str());
+      invalidarContagem();
+      return false;
     }
   }
   // rename direto (atômico no LittleFS); só usa remove+rename se falhar.

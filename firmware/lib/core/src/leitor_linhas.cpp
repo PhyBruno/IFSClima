@@ -23,7 +23,7 @@ bool LeitorLinhas::proxima(std::string& linha, bool& completa) {
         completa = true;
         return true;
       }
-      linha.push_back(c);
+      if (linha.size() < MAX_LINHA) linha.push_back(c);
     }
   }
 }

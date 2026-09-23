@@ -22,7 +22,10 @@ bool leituraValida(const std::string& linha);
 //  - remoção via .tmp linha a linha + rename.
 class Buffer {
  public:
-  Buffer(ISistemaArquivos& fs, std::string caminho, uint32_t maxLinhas);
+  // maxLinhas: teto em linhas (0 = sem). maxBytes: teto em bytes (0 = sem) —
+  // removerInicio() reescreve via .tmp, então o buffer e o .tmp precisam
+  // caber JUNTOS na partição: use maxBytes <= ~40% do LittleFS.
+  Buffer(ISistemaArquivos& fs, std::string caminho, uint32_t maxLinhas, uint32_t maxBytes = 0);
 
   bool adicionar(const std::string& linhaJson);  // sem '\n'
   uint32_t contar();                              // linhas não vazias
@@ -55,6 +58,7 @@ class Buffer {
   std::string caminho_;
   std::string tmp_;
   uint32_t max_;
+  uint32_t maxBytes_;
   bool contagemConhecida_;
   uint32_t n_;
 };
