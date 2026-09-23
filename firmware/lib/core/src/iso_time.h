@@ -4,7 +4,9 @@
 
 namespace core {
 
-constexpr size_t TAM_ISO = 32;  // "YYYY-MM-DDTHH:MM:SS.mmmZ" (24) + folga
+// "YYYY-MM-DDTHH:MM:SS.mmmZ" = 24 + NUL; 48 cobre o pior caso que o GCC
+// calcula para os %d (44 bytes) e evita -Wformat-truncation no ESP32.
+constexpr size_t TAM_ISO = 48;
 
 // Dias desde 1970-01-01 para uma data do calendário gregoriano (UTC).
 int64_t diasDesdeEpoch(int ano, unsigned mes, unsigned dia);
