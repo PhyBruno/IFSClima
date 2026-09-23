@@ -77,6 +77,12 @@ firmware/
 Regra de dependência: `lib/core` **não** inclui `Arduino.h` nem nada do ESP-IDF; recebe tempo,
 FS e leituras brutas por parâmetro/interface. `lib/hal` e `src/` fazem a ponte.
 
+### Hardware confirmado (leitura via esptool em 2026-09-23, COM3)
+
+ESP32-D0WD-V3 revisão v3.1 (clássico, dual core, 240 MHz, cristal 40 MHz), módulo WROOM-32,
+flash de 4 MB, calibração de Vref do ADC em eFuse. Conversor USB-serial CP2102 (driver Silicon
+Labs CP210x). Firmware de fábrica: ESP-AT 2.4.0 (será sobrescrito).
+
 ### Pinagem (NodeMCU-32S / ESP32-WROOM-32)
 
 | Função | Pino | Observação |
@@ -217,7 +223,11 @@ Todos os sensores em **3V3**. O ESP32 não tolera 5 V nos GPIOs.
 1. `pio test -e native` verde; cobertura ≥ 80% em `lib/core`.
 2. `pio run -e esp32` compila sem warnings novos.
 3. Workflow de CI do firmware rodando os dois itens acima.
-4. README com roteiro de bancada; firmware marcado como **não validado em campo** até o usuário executar `b3s`, `b5`, `b7`, `b8` e `b9` na placa real.
+4. README com roteiro de bancada. A placa fica ligada na USB do PC de desenvolvimento, então a
+   validação é **conjunta**: o Claude grava os sketches (`pio run -t upload`) e lê/interpreta a
+   Serial; o usuário executa só a parte física (ímã no pluviômetro, UV ao sol, multímetro,
+   alcance da rede do IFSC). Firmware marcado como **não validado em campo** até `b3s`, `b5`,
+   `b7`, `b8` e `b9` passarem na placa real.
 5. `.gitignore` cobre `firmware/include/secrets.h`; `PROJECT.md`, `ROADMAP.md` e `CLAUDE.md` atualizados com o firmware.
 
 ## Riscos
