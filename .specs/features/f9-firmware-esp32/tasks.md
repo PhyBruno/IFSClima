@@ -3423,7 +3423,15 @@ bool SensorBme280::ler(JsonObject saida, std::string& erro) {
 
 SensorUv::SensorUv(int pino, double limiteSoltoMv) : pino_(pino), limiteSoltoMv_(limiteSoltoMv) {}
 
-void SensorUv::iniciar() { analogSetPinAttenuation(pino_, ADC_6db); }
+void SensorUv::iniciar() {
+  // Atenuação GLOBAL, não por pino: no Arduino-ESP32 3.x a calibração que
+  // converte a leitura crua em mV é criada uma vez por unidade de ADC com a
+  // atenuação global (esp32-hal-adc.c). Com analogSetPinAttenuation o canal
+  // lia em 6 dB e convertia pela curva de 11 dB, dando mV errados (no b5, o
+  // PULL_UP lia 3160 mV, impossível em 6 dB). O UV é a única entrada analógica
+  // da estação, então mexer no global não afeta nenhum outro sensor.
+  analogSetAttenuation(ADC_6db);
+}
 
 double SensorUv::lerMv() {
   double grupos[15];
