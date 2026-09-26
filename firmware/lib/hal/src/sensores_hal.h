@@ -44,4 +44,15 @@ class SensorUv : public core::Sensor {
   double limiteSoltoMv_;
 };
 
+// Pluviômetro: devolve o acumulado desde a última leitura e zera.
+class SensorChuva : public core::Sensor {
+ public:
+  explicit SensorChuva(double mmPorTip) : mmPorTip_(mmPorTip) {}
+  const char* nome() const override { return "rain_gauge"; }
+  bool ler(JsonObject saida, std::string& erro) override;
+
+ private:
+  double mmPorTip_;
+};
+
 }  // namespace hal

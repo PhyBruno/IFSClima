@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include "rain_hal.h"
 #include "texto.h"
 #include "uv_math.h"
 
@@ -116,6 +117,13 @@ bool SensorUv::ler(JsonObject saida, std::string& erro) {
   }
   saida["uv_index"] = a.indice;
   saida["uv_voltage_v"] = a.tensaoV;
+  return true;
+}
+
+// ---------------- Pluviômetro ----------------
+
+bool SensorChuva::ler(JsonObject saida, std::string& /*erro*/) {
+  core::escreverChuva(saida, chuvaRetirar(), mmPorTip_);
   return true;
 }
 
