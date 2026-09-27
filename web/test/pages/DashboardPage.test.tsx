@@ -135,9 +135,13 @@ describe("DashboardPage", () => {
 
     const notification = await screen.findByRole("status");
     expect(notification).toHaveClass("fixed", "right-4", "top-4");
-    // Não é filho do <header> (que tem só o título e o botão "Exportar PDF").
-    const header = screen.getByRole("banner");
-    expect(within(header).queryByRole("status")).not.toBeInTheDocument();
+    // Não é filho de nenhum <header> (o fixo do AppShell, só com o título da
+    // seção, nem o da página, com o título e o botão "Exportar PDF").
+    const headers = screen.getAllByRole("banner");
+    expect(headers.length).toBeGreaterThan(0);
+    for (const header of headers) {
+      expect(within(header).queryByRole("status")).not.toBeInTheDocument();
+    }
   });
 
   it("status: nenhuma leitura ainda (timestamp null) mostra notificação 'Offline', sem horário", async () => {

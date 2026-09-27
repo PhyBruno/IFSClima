@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import { CloudRainIcon, DropletsIcon, GaugeIcon, SunIcon, ThermometerIcon } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useLatest } from "../hooks/useLatest";
 import { StatCard, type SensorType } from "./StatCard";
-import { Card } from "./Card";
 import { EmptyState } from "./EmptyState";
-import { Skeleton } from "./Skeleton";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { UvBadge } from "./UvBadge";
 
@@ -64,11 +65,8 @@ import { UvBadge } from "./UvBadge";
  *   branch não tem esse dado (fetch falhou, `data` é `undefined`), então não
  *   tenta mostrar nada a mais além dos cards "sem sinal".
  *
- * - **Ícones**: o inventário real de ícones por sensor não foi extraído em
- *   T5.1/T5.1b (mesma decisão já documentada em `DemoGallery.tsx`, T5.4) —
- *   fora do escopo de T6.2 desenhar um set novo. Reaproveita-se aqui o mesmo
- *   placeholder mínimo (círculo) só para satisfazer a prop obrigatória
- *   `icon` do `StatCard`.
+ * - **Ícones**: um ícone lucide por sensor (convenção do shadcn/ui), herdando
+ *   o acento via `currentColor` dentro do chip do `StatCard`.
  *
  * - **Grid responsivo**: `repeat(2, 1fr)` com gap `10px` no mobile e
  *   `repeat(3, 1fr)` com gap `16px` no desktop, exatamente como
@@ -93,12 +91,6 @@ import { UvBadge } from "./UvBadge";
  *   SENSOR, não do valor da leitura atual.
  */
 
-const PLACEHOLDER_ICON: ReactNode = (
-  <svg viewBox="0 0 24 24" width={16} height={16} fill="none" aria-hidden="true">
-    <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={2} />
-  </svg>
-);
-
 type SensorField = "temperature_c" | "humidity_pct" | "pressure_hpa" | "rain_mm" | "uv_index";
 
 interface SensorDefinition {
@@ -106,6 +98,7 @@ interface SensorDefinition {
   sensor: SensorType;
   label: string;
   unit: string;
+  icon: ReactNode;
   /** Texto de `InfoTooltip` (pedido do usuário, 2026-08-16) — omitido nos sensores sem explicação pedida (Temperatura/Pressão/Chuva). */
   tooltip?: string;
 }
@@ -119,30 +112,54 @@ const UV_TOOLTIP =
   "Índice UV mede a intensidade da radiação ultravioleta solar na superfície, numa escala de 0 a 11+ definida pela OMS. É calculado a partir da irradiância UV ponderada pela curva de ação eritêmica (sensibilidade da pele humana a cada comprimento de onda) — quanto maior o valor, maior o risco de queimadura em exposição direta.";
 
 const SENSORS: SensorDefinition[] = [
-  { field: "temperature_c", sensor: "temperature", label: "Temperatura", unit: "°C" },
+  {
+    field: "temperature_c",
+    sensor: "temperature",
+    label: "Temperatura",
+    unit: "°C",
+    icon: <ThermometerIcon aria-hidden="true" />,
+  },
   {
     field: "humidity_pct",
     sensor: "humidity",
     label: "Umidade",
     unit: "%",
+    icon: <DropletsIcon aria-hidden="true" />,
     tooltip: HUMIDITY_TOOLTIP,
   },
-  { field: "pressure_hpa", sensor: "pressure", label: "Pressão", unit: "hPa" },
-  { field: "rain_mm", sensor: "rain", label: "Chuva", unit: "mm" },
-  { field: "uv_index", sensor: "uv", label: "Índice UV", unit: "", tooltip: UV_TOOLTIP },
+  {
+    field: "pressure_hpa",
+    sensor: "pressure",
+    label: "Pressão",
+    unit: "hPa",
+    icon: <GaugeIcon aria-hidden="true" />,
+  },
+  {
+    field: "rain_mm",
+    sensor: "rain",
+    label: "Chuva",
+    unit: "mm",
+    icon: <CloudRainIcon aria-hidden="true" />,
+  },
+  {
+    field: "uv_index",
+    sensor: "uv",
+    label: "Índice UV",
+    unit: "",
+    icon: <SunIcon aria-hidden="true" />,
+    tooltip: UV_TOOLTIP,
+  },
 ];
 
-/** Mesma árvore de classes de `StatCard.tsx` (`Card` padding/gap) — placeholder que ocupa o espaço final exato, sem layout shift quando os dados chegam. */
+/** Mesmo `Card`/espaçamento do `StatCard` real — ocupa o espaço final exato, sem layout shift quando os dados chegam. */
 function StatCardSkeleton() {
   return (
-    <Card
-      padding="none"
-      data-testid="statcard-skeleton"
-      className="flex flex-col gap-1.5 p-[11px] md:gap-2.5 md:p-4"
-    >
-      <Skeleton className="h-9 w-9 rounded-10" />
-      <Skeleton className="h-3 w-2/3" />
-      <Skeleton className="h-6 w-1/2 md:h-7" />
+    <Card size="sm" data-testid="statcard-skeleton" className="md:[--card-spacing:--spacing(4)]">
+      <CardContent className="flex flex-col gap-1.5 md:gap-2.5">
+        <Skeleton className="size-9 rounded-lg" />
+        <Skeleton className="h-3 w-2/3" />
+        <Skeleton className="h-6 w-1/2 md:h-7" />
+      </CardContent>
     </Card>
   );
 }
@@ -170,14 +187,14 @@ export function SensorGrid() {
     // na docstring acima).
     return (
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
-        {SENSORS.map(({ field, sensor, label, unit, tooltip }) => (
+        {SENSORS.map(({ field, sensor, label, unit, icon, tooltip }) => (
           <StatCard
             key={field}
             sensor={sensor}
             label={label}
             value={null}
             unit={unit}
-            icon={PLACEHOLDER_ICON}
+            icon={icon}
             tooltip={tooltip}
           />
         ))}
@@ -198,7 +215,7 @@ export function SensorGrid() {
     <div className="flex flex-col gap-2">
       <ConnectionBanner show={isError} lastUpdatedAt={data.timestamp} />
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
-        {SENSORS.map(({ field, sensor, label, unit, tooltip }) => {
+        {SENSORS.map(({ field, sensor, label, unit, icon, tooltip }) => {
           const value = data[field];
           return (
             <StatCard
@@ -207,7 +224,7 @@ export function SensorGrid() {
               label={label}
               value={value}
               unit={unit}
-              icon={PLACEHOLDER_ICON}
+              icon={icon}
               tooltip={tooltip}
               badge={field === "uv_index" && value !== null ? <UvBadge value={value} /> : undefined}
             />

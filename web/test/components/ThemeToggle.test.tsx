@@ -2,13 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ThemeToggle } from "../../src/components/ThemeToggle";
 
+const root = document.documentElement;
+
 describe("ThemeToggle", () => {
+  // Espelha o `index.html`: o `<html>` já nasce com `class="dark"`.
   beforeEach(() => {
-    delete document.documentElement.dataset.theme;
+    root.classList.add("dark");
   });
 
   afterEach(() => {
-    delete document.documentElement.dataset.theme;
+    root.classList.remove("dark");
   });
 
   it("tem nome acessível 'Modo escuro' e papel de switch", () => {
@@ -17,28 +20,30 @@ describe("ThemeToggle", () => {
     expect(screen.getByRole("switch", { name: /modo escuro/i })).toBeInTheDocument();
   });
 
-  it("estado inicial: representa tema escuro (default D16) sem forçar data-theme no mount", () => {
+  it("estado inicial: representa tema escuro (default D16) sem tocar na classe do <html> no mount", () => {
+    // Sem a classe de antemão: se o mount escrevesse no DOM, ela apareceria.
+    root.classList.remove("dark");
+
     render(<ThemeToggle />);
 
     const toggle = screen.getByRole("switch", { name: /modo escuro/i });
     expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(toggle).toHaveClass("bg-toggle-track-on");
-    // Não deve, sozinho, aplicar data-theme no mount.
-    expect(document.documentElement.dataset.theme).toBeUndefined();
+    expect(toggle).toHaveAttribute("data-state", "checked");
+    expect(root).not.toHaveClass("dark");
   });
 
-  it("clique alterna para claro: muda a classe visual e seta data-theme='light' no elemento raiz", () => {
+  it("clique alterna para claro: muda o estado visual e remove a classe 'dark' do elemento raiz", () => {
     render(<ThemeToggle />);
     const toggle = screen.getByRole("switch", { name: /modo escuro/i });
 
     fireEvent.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(toggle).toHaveClass("bg-toggle-track-off");
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(toggle).toHaveAttribute("data-state", "unchecked");
+    expect(root).not.toHaveClass("dark");
   });
 
-  it("segundo clique volta para escuro: seta data-theme='dark' explicitamente", () => {
+  it("segundo clique volta para escuro: recoloca a classe 'dark' no elemento raiz", () => {
     render(<ThemeToggle />);
     const toggle = screen.getByRole("switch", { name: /modo escuro/i });
 
@@ -46,8 +51,8 @@ describe("ThemeToggle", () => {
     fireEvent.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(toggle).toHaveClass("bg-toggle-track-on");
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(toggle).toHaveAttribute("data-state", "checked");
+    expect(root).toHaveClass("dark");
   });
 
   it("é um <button> nativo — operável via teclado (Enter/Espaço) sem lógica extra", () => {
@@ -68,7 +73,7 @@ describe("ThemeToggle", () => {
 
     expect(onChange).toHaveBeenCalledWith("dark");
     // Controlado: o componente não deve escrever em document.documentElement.
-    expect(document.documentElement.dataset.theme).toBeUndefined();
+    expect(root.className).toBe("dark");
 
     rerender(<ThemeToggle theme="dark" onChange={onChange} />);
     expect(screen.getByRole("switch", { name: /modo escuro/i })).toHaveAttribute(

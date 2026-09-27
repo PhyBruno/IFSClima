@@ -10,7 +10,9 @@ describe("DemoGallery", () => {
   it("renderiza o título da galeria e o ThemeToggle para alternar tema ao vivo", () => {
     render(<DemoGallery />);
 
-    expect(screen.getByRole("heading", { level: 1, name: /galeria de componentes/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: /galeria de componentes/i }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /modo escuro/i })).toBeInTheDocument();
   });
 
@@ -67,8 +69,16 @@ describe("DemoGallery", () => {
       expect(screen.getByRole("heading", { level: 2, name: title })).toBeInTheDocument();
     }
     // Nenhum título de seção (h2) deve ser um nome técnico em inglês puro.
-    for (const englishName of ["StatCard", "ChartCard", "PeriodSelector", "StatusPill", "EmptyState"]) {
-      expect(screen.queryByRole("heading", { level: 2, name: englishName })).not.toBeInTheDocument();
+    for (const englishName of [
+      "StatCard",
+      "ChartCard",
+      "PeriodSelector",
+      "StatusPill",
+      "EmptyState",
+    ]) {
+      expect(
+        screen.queryByRole("heading", { level: 2, name: englishName }),
+      ).not.toBeInTheDocument();
     }
   });
 

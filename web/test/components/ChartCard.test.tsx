@@ -1,11 +1,167 @@
-import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { ChartCard } from "../../src/components/ChartCard";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import {
+  ChartCard,
+  barDomain,
+  buildRows,
+  formatValue,
+  paddedDomain,
+} from "../../src/components/ChartCard";
+
+/**
+ * O jsdom não tem layout: o `ResponsiveContainer` do Recharts lê
+ * `getBoundingClientRect()` ao montar e sobrescreve o `initialDimension`
+ * (320x200) do `ChartContainer` com 0x0 — nada seria desenhado. Fingimos um
+ * container de 320x200 pra todo elemento HTML, MENOS `<span>`: o Recharts
+ * mede o texto dos ticks num span oculto, e 320x200 ali faria todo rótulo
+ * "colidir" com o vizinho (o eixo descartaria ticks).
+ */
+const CHART_RECT = {
+  x: 0,
+  y: 0,
+  top: 0,
+  left: 0,
+  right: 320,
+  bottom: 200,
+  width: 320,
+  height: 200,
+  toJSON: () => ({}),
+} as DOMRect;
+
+beforeEach(() => {
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.tagName === "SPAN" ? original.call(this) : CHART_RECT;
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+/** Rótulos dos ticks de cada eixo Y, na ordem em que os eixos são desenhados (esquerdo, direito). */
+function yAxisTicks(container: HTMLElement): string[][] {
+  return Array.from(container.querySelectorAll(".recharts-yAxis-tick-labels")).map((axis) =>
+    Array.from(axis.querySelectorAll("text")).map((text) => text.textContent ?? ""),
+  );
+}
+
+/** "24.6°C" → 24.6 (tira a unidade do tick). */
+function tickNumber(tick: string): number {
+  return Number.parseFloat(tick);
+}
+
+/** Área de plotagem (sem margens/eixos) — o `clipPath` que o Recharts aplica às séries. */
+function plotArea(container: HTMLElement): { top: number; bottom: number } {
+  const rect = container.querySelector("clipPath rect")!;
+  const top = Number(rect.getAttribute("y"));
+  return { top, bottom: top + Number(rect.getAttribute("height")) };
+}
+
+/** Coordenadas Y de todos os vértices de um atributo `d` de path SVG. */
+function pathYs(d: string): number[] {
+  return Array.from(d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g), (match) => Number(match[2]));
+}
+
+/**
+ * Passa o mouse sobre o gráfico na coordenada X dada (plot vai de x=44 até
+ * x=316 com um eixo, ou x=272 com dois) e espera o tooltip do Recharts
+ * aparecer — ele é atualizado num requestAnimationFrame, daí o `waitFor`.
+ */
+async function hoverAt(container: HTMLElement, clientX: number): Promise<HTMLElement> {
+  fireEvent.mouseMove(container.querySelector(".recharts-wrapper")!, { clientX, clientY: 50 });
+  const tooltip = container.querySelector<HTMLElement>(".recharts-tooltip-wrapper")!;
+  await waitFor(() => expect(tooltip).toBeVisible());
+  return tooltip;
+}
+
+describe("helpers puros de ChartCard", () => {
+  describe("formatValue", () => {
+    it("arredonda para 1 casa decimal", () => {
+      expect(formatValue(24.65)).toBe("24.7");
+      expect(formatValue(1013.24)).toBe("1013.2");
+    });
+
+    it("omite o '.0' quando o valor arredondado é inteiro", () => {
+      expect(formatValue(20)).toBe("20");
+      expect(formatValue(19.96)).toBe("20");
+    });
+  });
+
+  describe("buildRows", () => {
+    it("alinha as séries por índice, uma chave (s0, s1…) por série, com o rótulo de cada ponto", () => {
+      const rows = buildRows(
+        [
+          { label: "Temperatura", color: "#f97316", points: [20, 24] },
+          { label: "Umidade", color: "#0ea5e9", points: [60, 65] },
+        ],
+        ["14:00", "15:00"],
+      );
+
+      expect(rows).toEqual([
+        { label: "14:00", s0: 20, s1: 60 },
+        { label: "15:00", s0: 24, s1: 65 },
+      ]);
+    });
+
+    it("sem pointLabels, o rótulo cai na posição 1-based do ponto", () => {
+      const rows = buildRows([{ label: "Umidade", color: "#0ea5e9", points: [60, 61] }], undefined);
+
+      expect(rows.map((row) => row.label)).toEqual(["1", "2"]);
+    });
+
+    it("série mais curta fica sem valor (undefined) nos índices que não tem — não desloca as demais", () => {
+      const rows = buildRows(
+        [
+          { label: "Curta", color: "#f97316", points: [1] },
+          { label: "Longa", color: "#0ea5e9", points: [1, 2, 3] },
+        ],
+        undefined,
+      );
+
+      expect(rows).toHaveLength(3);
+      expect(rows[2]).toEqual({ label: "3", s0: undefined, s1: 3 });
+    });
+
+    it("séries sem pontos produzem zero linhas", () => {
+      expect(buildRows([], undefined)).toEqual([]);
+      expect(buildRows([{ label: "T", color: "#f97316", points: [] }], undefined)).toEqual([]);
+    });
+  });
+
+  describe("paddedDomain (respiro vertical — feedback do usuário, 2026-07-24: escala nunca cortada)", () => {
+    it("abre ~12% da amplitude acima do máximo e abaixo do mínimo", () => {
+      const [min, max] = paddedDomain([10, 50]);
+
+      expect(min).toBeCloseTo(5.2);
+      expect(max).toBeCloseTo(54.8);
+    });
+
+    it("série constante (min===max) ganha ±1 em vez de um eixo de altura zero", () => {
+      expect(paddedDomain([20, 20])).toEqual([19, 21]);
+    });
+  });
+
+  describe("barDomain (barras: base fixa em 0, respiro só no topo)", () => {
+    it("começa em 0 e abre ~12% acima do máximo — a barra mais alta nunca encosta no topo", () => {
+      const [min, max] = barDomain([0.5, 4]);
+
+      expect(min).toBe(0);
+      expect(max).toBeCloseTo(4.48);
+    });
+
+    it("todas as barras em zero ganham um topo de 1 em vez de um eixo de altura zero", () => {
+      expect(barDomain([0, 0])).toEqual([0, 1]);
+    });
+  });
+});
 
 describe("ChartCard", () => {
   describe("variant='line'", () => {
-    it("renderiza título e uma polyline por série", () => {
-      render(
+    it("renderiza título e uma área por série dentro do gráfico acessível", () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura & Umidade — últimas 24h"
           variant="line"
@@ -16,12 +172,16 @@ describe("ChartCard", () => {
         />,
       );
 
-      expect(screen.getByText("Temperatura & Umidade — últimas 24h")).toBeInTheDocument();
-      const svg = screen.getByTestId("chart-svg");
-      expect(svg.querySelectorAll("polyline")).toHaveLength(2);
+      expect(
+        screen.getByRole("heading", { name: "Temperatura & Umidade — últimas 24h" }),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("chart-svg")).toBe(
+        screen.getByRole("img", { name: "Gráfico de linha: Temperatura & Umidade — últimas 24h" }),
+      );
+      expect(container.querySelectorAll(".recharts-area")).toHaveLength(2);
     });
 
-    it("renderiza a legenda com um dot colorido por série", () => {
+    it("renderiza a legenda com um item por série", () => {
       render(
         <ChartCard
           title="Temp & Umid"
@@ -33,25 +193,12 @@ describe("ChartCard", () => {
         />,
       );
 
-      expect(screen.getByText("Temperatura")).toBeInTheDocument();
-      expect(screen.getByText("Umidade")).toBeInTheDocument();
+      const items = within(screen.getByRole("list")).getAllByRole("listitem");
+      expect(items.map((item) => item.textContent)).toEqual(["Temperatura", "Umidade"]);
     });
 
-    it("cada polyline usa a cor (stroke) da própria série", () => {
-      render(
-        <ChartCard
-          title="Chart"
-          variant="line"
-          series={[{ label: "Temperatura", color: "#f97316", points: [1, 5, 3] }]}
-        />,
-      );
-
-      const polyline = screen.getByTestId("chart-svg").querySelector("polyline");
-      expect(polyline).toHaveAttribute("stroke", "#f97316");
-    });
-
-    it("área preenchida (feedback do usuário, 2026-07-24): um <polygon> por série, com fillOpacity baixa na cor da própria série", () => {
-      render(
+    it("área preenchida (feedback do usuário, 2026-07-24): traço e gradiente de cada série usam a cor DA PRÓPRIA série, com opacidade baixa no preenchimento", () => {
+      const { container } = render(
         <ChartCard
           title="Temp & Umid"
           variant="line"
@@ -62,18 +209,33 @@ describe("ChartCard", () => {
         />,
       );
 
-      const polygons = screen.getByTestId("chart-svg").querySelectorAll("polygon");
-      expect(polygons).toHaveLength(2);
-      expect(polygons[0]).toHaveAttribute("fill", "#f97316");
-      expect(polygons[1]).toHaveAttribute("fill", "#0ea5e9");
-      polygons.forEach((polygon) => {
-        expect(Number(polygon.getAttribute("fill-opacity"))).toBeGreaterThan(0);
-        expect(Number(polygon.getAttribute("fill-opacity"))).toBeLessThan(1);
+      // A cor chega às séries via variável CSS (--color-s0/--color-s1) que o
+      // ChartContainer declara a partir do config — é o contrato do shadcn.
+      const css = container.querySelector("style")!.textContent!;
+      expect(css).toContain("--color-s0: #f97316");
+      expect(css).toContain("--color-s1: #0ea5e9");
+
+      const areas = container.querySelectorAll(".recharts-area");
+      areas.forEach((area, index) => {
+        const color = `var(--color-s${index})`;
+        expect(area.querySelector(".recharts-area-curve")).toHaveAttribute("stroke", color);
+
+        const gradientId = area
+          .querySelector(".recharts-area-area")!
+          .getAttribute("fill")!
+          .match(/^url\(#(.+)\)$/)![1]!;
+        const stops = container.querySelectorAll(`[id="${gradientId}"] stop`);
+        expect(stops.length).toBeGreaterThan(0);
+        stops.forEach((stop) => {
+          expect(stop).toHaveAttribute("stop-color", color);
+          expect(Number(stop.getAttribute("stop-opacity"))).toBeGreaterThan(0);
+          expect(Number(stop.getAttribute("stop-opacity"))).toBeLessThan(1);
+        });
       });
     });
 
-    it("série com menos de 2 pontos não desenha polyline degenerada para aquela série, mas não quebra as demais", () => {
-      render(
+    it("série com menos de 2 pontos não quebra as demais: todas as áreas são desenhadas e a curta ganha marcador", () => {
+      const { container } = render(
         <ChartCard
           title="Chart"
           variant="line"
@@ -84,12 +246,13 @@ describe("ChartCard", () => {
         />,
       );
 
-      const svg = screen.getByTestId("chart-svg");
-      expect(svg.querySelectorAll("polyline")).toHaveLength(1);
+      expect(container.querySelectorAll(".recharts-area")).toHaveLength(2);
+      // Só a série de 1 ponto ganha marcador (`dot`); a longa fica só com a curva.
+      expect(container.querySelectorAll(".recharts-dot")).toHaveLength(1);
     });
 
-    it("série com exatamente 1 ponto desenha um marcador visível em vez de sumir (bug real: estação nova com só 1 dia de dado ficava com o card em branco)", () => {
-      render(
+    it("série com exatamente 1 ponto desenha um marcador visível em vez de sumir (bug real: estação nova com só 1 dia de dado ficava com o card em branco)", async () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura"
           variant="line"
@@ -99,27 +262,27 @@ describe("ChartCard", () => {
         />,
       );
 
-      const svg = screen.getByTestId("chart-svg");
-      // Não há como desenhar uma linha com 1 ponto só, mas o dado não pode
-      // ficar totalmente invisível (sem polyline, sem marcador, sem nada).
-      expect(svg.querySelector("polyline")).not.toBeInTheDocument();
-      expect(svg.querySelectorAll("circle").length).toBeGreaterThan(0);
+      // Não há linha com 1 ponto só, mas o dado não pode ficar invisível.
+      expect(container.querySelectorAll(".recharts-dot")).toHaveLength(1);
 
-      const hitTarget = screen.getByTestId("chart-point-hit");
-      fireEvent.mouseEnter(hitTarget);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("04/08 — 24.7°C");
+      const tooltip = await hoverAt(container, 180);
+      expect(tooltip).toHaveTextContent("04/08");
+      expect(tooltip).toHaveTextContent("24.7°C");
     });
 
-    it("série constante (min===max) não quebra o cálculo da polyline", () => {
-      render(
+    it("série constante (min===max) não quebra a curva e o eixo ganha ±1 de respiro", () => {
+      const { container } = render(
         <ChartCard
           title="Chart"
           variant="line"
+          unit="°C"
           series={[{ label: "Temperatura", color: "#f97316", points: [20, 20, 20] }]}
         />,
       );
 
-      expect(screen.getByTestId("chart-svg").querySelector("polyline")).toBeInTheDocument();
+      const d = container.querySelector(".recharts-area-curve")!.getAttribute("d")!;
+      expect(d).not.toContain("NaN");
+      expect(yAxisTicks(container)).toEqual([["19°C", "20°C", "21°C"]]);
     });
 
     it("renderiza xLabels abaixo do gráfico quando fornecido", () => {
@@ -132,11 +295,12 @@ describe("ChartCard", () => {
         />,
       );
 
-      expect(screen.getByText("07:00")).toBeInTheDocument();
-      expect(screen.getByText("21:00")).toBeInTheDocument();
+      const labels = screen.getByTestId("chart-x-labels");
+      expect(labels).toHaveTextContent("07:00");
+      expect(labels).toHaveTextContent("21:00");
     });
 
-    it("sem xLabels, não renderiza nada de eixo X", () => {
+    it("sem xLabels, não renderiza a faixa de rótulos do eixo X", () => {
       render(
         <ChartCard
           title="Chart"
@@ -145,7 +309,7 @@ describe("ChartCard", () => {
         />,
       );
 
-      expect(screen.queryByText(/:00/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("chart-x-labels")).not.toBeInTheDocument();
     });
   });
 
@@ -159,42 +323,46 @@ describe("ChartCard", () => {
         />,
       );
 
-      expect(screen.getByText("Chuva acumulada — hoje")).toBeInTheDocument();
-      expect(screen.queryByText("Chuva")).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Chuva acumulada — hoje" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("img", { name: "Gráfico de barras: Chuva acumulada — hoje" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
     });
 
-    it("renderiza um rect com rx=3 por barra, cor única", () => {
-      render(
+    it("uma barra por ponto, todas na cor da série", () => {
+      const { container } = render(
         <ChartCard
           title="Chuva"
           variant="bar"
-          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 2, 5, 1] }]}
+          series={[{ label: "Chuva", color: "#06b6d4", points: [3, 2, 5, 1] }]}
         />,
       );
 
-      const rects = screen.getByTestId("chart-svg").querySelectorAll("rect");
-      expect(rects).toHaveLength(4);
-      rects.forEach((rect) => {
-        expect(rect).toHaveAttribute("rx", "3");
-        expect(rect).toHaveAttribute("fill", "#06b6d4");
-      });
+      expect(container.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(4);
+      expect(container.querySelector("style")!.textContent).toContain("--color-s0: #06b6d4");
     });
 
-    it("todas as barras em zero não quebra (altura 0 em vez de NaN)", () => {
-      render(
-        <ChartCard title="Chuva" variant="bar" series={[{ label: "Chuva", color: "#06b6d4", points: [0, 0, 0] }]} />,
-      );
-
-      const rects = screen.getByTestId("chart-svg").querySelectorAll("rect");
-      expect(rects).toHaveLength(3);
-      rects.forEach((rect) => expect(rect).toHaveAttribute("height", "0"));
-    });
-
-    it("ignora séries extras além da primeira, sem lançar erro", () => {
-      render(
+    it("todas as barras em zero não quebram (nada de NaN, eixo continua de pé)", () => {
+      const { container } = render(
         <ChartCard
           title="Chuva"
           variant="bar"
+          unit="mm"
+          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 0, 0] }]}
+        />,
+      );
+
+      expect(screen.getByTestId("chart-svg").innerHTML).not.toContain("NaN");
+      expect(yAxisTicks(container)[0]![0]).toBe("0mm");
+    });
+
+    it("ignora séries extras além da primeira, sem lançar erro", async () => {
+      const { container } = render(
+        <ChartCard
+          title="Chuva"
+          variant="bar"
+          unit="mm"
           series={[
             { label: "Chuva", color: "#06b6d4", points: [1, 2] },
             { label: "Extra", color: "#000000", points: [9, 9, 9] },
@@ -202,13 +370,17 @@ describe("ChartCard", () => {
         />,
       );
 
-      const rects = screen.getByTestId("chart-svg").querySelectorAll("rect");
-      expect(rects).toHaveLength(2);
+      expect(container.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(2);
+      expect(container.querySelector("style")!.textContent).not.toContain("--color-s1");
+
+      const tooltip = await hoverAt(container, 250);
+      expect(tooltip).toHaveTextContent("Chuva");
+      expect(tooltip).not.toHaveTextContent("Extra");
     });
   });
 
   describe("estado vazio (DS-04)", () => {
-    it("series=[] renderiza EmptyState em vez de svg quebrado", () => {
+    it("series=[] renderiza EmptyState em vez de gráfico quebrado", () => {
       render(<ChartCard title="Chuva acumulada" variant="bar" series={[]} />);
 
       expect(screen.getByText("Nenhum dado no período")).toBeInTheDocument();
@@ -217,23 +389,28 @@ describe("ChartCard", () => {
 
     it("série presente mas com points=[] também conta como vazio", () => {
       render(
-        <ChartCard title="Temp" variant="line" series={[{ label: "Temperatura", color: "#f97316", points: [] }]} />,
+        <ChartCard
+          title="Temp"
+          variant="line"
+          series={[{ label: "Temperatura", color: "#f97316", points: [] }]}
+        />,
       );
 
       expect(screen.getByText("Nenhum dado no período")).toBeInTheDocument();
       expect(screen.queryByTestId("chart-svg")).not.toBeInTheDocument();
     });
 
-    it("não renderiza legenda quando vazio, mesmo em variant='line'", () => {
-      render(<ChartCard title="Temp" variant="line" series={[]} />);
+    it("não renderiza legenda nem eixo Y quando vazio, mesmo em variant='line'", () => {
+      const { container } = render(<ChartCard title="Temp" variant="line" series={[]} />);
 
       expect(screen.queryByRole("list")).not.toBeInTheDocument();
+      expect(container.querySelector(".recharts-yAxis")).not.toBeInTheDocument();
     });
 
     it("variant='bar' com series[0] vazio conta como vazio mesmo se uma série IGNORADA tiver pontos", () => {
       // series[1] nunca é desenhado em variant="bar" (só series[0]) — a
       // checagem de vazio precisa ser ciente disso, senão renderiza um
-      // <svg> com zero barras em vez do EmptyState.
+      // gráfico com zero barras em vez do EmptyState.
       render(
         <ChartCard
           title="Chuva acumulada"
@@ -250,9 +427,9 @@ describe("ChartCard", () => {
     });
   });
 
-  describe("headroom vertical (feedback do usuário, 2026-07-24: escala nunca cortada)", () => {
-    it("variant='line': pico e vale não tocam as bordas do SVG (y=0/y=40)", () => {
-      render(
+  describe("respiro vertical (feedback do usuário, 2026-07-24: escala nunca cortada)", () => {
+    it("variant='line': pico e vale não tocam as bordas da área de plotagem", () => {
+      const { container } = render(
         <ChartCard
           title="Chart"
           variant="line"
@@ -260,68 +437,19 @@ describe("ChartCard", () => {
         />,
       );
 
-      const points = screen
-        .getByTestId("chart-svg")
-        .querySelector("polyline")!
-        .getAttribute("points")!
-        .split(" ")
-        .map((pair) => Number(pair.split(",")[1]));
-
-      points.forEach((y) => {
-        expect(y).toBeGreaterThan(0);
-        expect(y).toBeLessThan(40);
+      const { top, bottom } = plotArea(container);
+      const ys = pathYs(container.querySelector(".recharts-area-curve")!.getAttribute("d")!);
+      expect(ys.length).toBeGreaterThan(0);
+      ys.forEach((y) => {
+        expect(y).toBeGreaterThan(top);
+        expect(y).toBeLessThan(bottom);
       });
-    });
-
-    it("variant='bar': a barra mais alta não toca o topo do SVG (y=0)", () => {
-      render(
-        <ChartCard title="Chuva" variant="bar" series={[{ label: "Chuva", color: "#06b6d4", points: [1, 5, 2] }]} />,
-      );
-
-      const rects = screen.getByTestId("chart-svg").querySelectorAll("rect");
-      const tallestY = Math.min(...Array.from(rects).map((r) => Number(r.getAttribute("y"))));
-      expect(tallestY).toBeGreaterThan(0);
     });
   });
 
-  describe("pontos e tooltip no hover/foco (feedback do usuário, 2026-07-24)", () => {
-    it("variant='line': em repouso, só os alvos de hover/foco existem (nenhum marcador visível)", () => {
-      render(
-        <ChartCard
-          title="Chart"
-          variant="line"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 22, 21, 24] }]}
-        />,
-      );
-
-      const svg = screen.getByTestId("chart-svg");
-      // 4 pontos: só os 4 alvos de hover/foco (invisíveis) — sem hover, nenhum
-      // anel visível é desenhado (feedback do usuário + consulta de design,
-      // 2026-07-24: "marcador só no ponto ativo").
-      expect(svg.querySelectorAll("circle")).toHaveLength(4);
-    });
-
-    it("variant='line': hover num ponto desenha o marcador visível SÓ naquele ponto", () => {
-      render(
-        <ChartCard
-          title="Chart"
-          variant="line"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 22, 21, 24] }]}
-        />,
-      );
-
-      const hitTargets = screen.getAllByTestId("chart-point-hit");
-      fireEvent.mouseEnter(hitTargets[1]!);
-
-      // 4 alvos de hit + 1 marcador visível (só o ponto ativo).
-      expect(screen.getByTestId("chart-svg").querySelectorAll("circle")).toHaveLength(5);
-
-      fireEvent.mouseLeave(hitTargets[1]!);
-      expect(screen.getByTestId("chart-svg").querySelectorAll("circle")).toHaveLength(4);
-    });
-
-    it("variant='line': clique/toque (onClick) mostra o tooltip — mesmo alvo do mouse/teclado (feedback do usuário, 2026-07-24: suporte a touch)", () => {
-      render(
+  describe("tooltip no hover (feedback do usuário, 2026-07-24)", () => {
+    it("variant='line': hover mostra o rótulo de tempo e o valor+unidade do ponto; sair do gráfico esconde", async () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura"
           variant="line"
@@ -331,15 +459,16 @@ describe("ChartCard", () => {
         />,
       );
 
-      const hitTargets = screen.getAllByTestId("chart-point-hit");
-      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
+      const tooltip = await hoverAt(container, 300);
+      expect(tooltip).toHaveTextContent("15:00");
+      expect(tooltip).toHaveTextContent("Temperatura24.5°C");
 
-      fireEvent.click(hitTargets[1]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
+      fireEvent.mouseLeave(container.querySelector(".recharts-wrapper")!);
+      await waitFor(() => expect(tooltip).not.toBeVisible());
     });
 
-    it("variant='bar': clique/toque (onClick) mostra o tooltip da barra", () => {
-      render(
+    it("variant='bar': hover numa barra mostra o rótulo de tempo e o valor+unidade", async () => {
+      const { container } = render(
         <ChartCard
           title="Chuva"
           variant="bar"
@@ -349,95 +478,13 @@ describe("ChartCard", () => {
         />,
       );
 
-      const bars = screen.getAllByTestId("chart-bar-hit");
-      fireEvent.click(bars[1]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 2.4mm");
+      const tooltip = await hoverAt(container, 250);
+      expect(tooltip).toHaveTextContent("15:00");
+      expect(tooltip).toHaveTextContent("2.4mm");
     });
 
-    it("BUG CORRIGIDO (feedback do usuário, 2026-07-24: 'não dá pra clicar no gráfico de 30d'): clicar num ponto já em hover NÃO esconde o tooltip", () => {
-      // Reproduz a sequência de um clique de mouse DE VERDADE: o navegador
-      // dispara mouseenter (ativa via hover) ANTES do evento click. A versão
-      // com bug fazia `onClick` alternar (desativava se já ativo), então o
-      // próprio clique cancelava o hover que acabou de ativar o ponto —
-      // clicar "não fazia nada" visualmente. `onClick` agora só ativa
-      // (idempotente se já ativo), nunca desativa.
-      render(
-        <ChartCard
-          title="Temperatura"
-          variant="line"
-          unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
-          pointLabels={["14:00", "15:00"]}
-        />,
-      );
-
-      const hitTargets = screen.getAllByTestId("chart-point-hit");
-      fireEvent.mouseEnter(hitTargets[1]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
-
-      fireEvent.click(hitTargets[1]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
-    });
-
-    it("variant='line': hover num ponto mostra tooltip com o rótulo de tempo e o valor+unidade", () => {
-      render(
-        <ChartCard
-          title="Temperatura"
-          variant="line"
-          unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
-          pointLabels={["14:00", "15:00"]}
-        />,
-      );
-
-      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
-
-      const hitTargets = screen.getAllByTestId("chart-point-hit");
-      fireEvent.mouseEnter(hitTargets[1]!);
-
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 24.5°C");
-
-      fireEvent.mouseLeave(hitTargets[1]!);
-      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
-    });
-
-    it("variant='line': foco via teclado (não só mouse) também mostra o tooltip", () => {
-      render(
-        <ChartCard
-          title="Temperatura"
-          variant="line"
-          unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
-          pointLabels={["14:00", "15:00"]}
-        />,
-      );
-
-      const hitTargets = screen.getAllByTestId("chart-point-hit");
-      fireEvent.focus(hitTargets[0]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("14:00 — 20°C");
-
-      fireEvent.blur(hitTargets[0]!);
-      expect(screen.queryByTestId("chart-tooltip")).not.toBeInTheDocument();
-    });
-
-    it("variant='bar': hover numa barra mostra tooltip com o valor+unidade", () => {
-      render(
-        <ChartCard
-          title="Chuva"
-          variant="bar"
-          unit="mm"
-          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 2.4] }]}
-          pointLabels={["14:00", "15:00"]}
-        />,
-      );
-
-      const bars = screen.getAllByTestId("chart-bar-hit");
-      fireEvent.mouseEnter(bars[1]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("15:00 — 2.4mm");
-    });
-
-    it("sem pointLabels, o tooltip mostra só o valor formatado", () => {
-      render(
+    it("sem pointLabels, o tooltip ainda mostra o valor formatado com unidade", async () => {
+      const { container } = render(
         <ChartCard
           title="Chart"
           variant="line"
@@ -446,14 +493,14 @@ describe("ChartCard", () => {
         />,
       );
 
-      fireEvent.mouseEnter(screen.getAllByTestId("chart-point-hit")[0]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("60%");
+      const tooltip = await hoverAt(container, 50);
+      expect(tooltip).toHaveTextContent("Umidade60%");
     });
   });
 
   describe("escala lateral / eixo Y (feedback do usuário, 2026-07-24)", () => {
-    it("variant='line': mostra o valor máximo (topo) e mínimo (base) da série, com unidade", () => {
-      render(
+    it("variant='line': os ticks trazem a unidade e a escala cobre do mínimo ao máximo da série", () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura"
           variant="line"
@@ -462,31 +509,32 @@ describe("ChartCard", () => {
         />,
       );
 
-      const axis = screen.getByTestId("chart-axis");
-      expect(axis).toHaveTextContent("24.6°C");
-      expect(axis).toHaveTextContent("18°C");
+      const [ticks] = yAxisTicks(container);
+      expect(ticks!.length).toBeGreaterThan(1);
+      ticks!.forEach((tick) => expect(tick).toMatch(/°C$/));
+      expect(Math.min(...ticks!.map(tickNumber))).toBeLessThanOrEqual(18);
+      expect(Math.max(...ticks!.map(tickNumber))).toBeGreaterThanOrEqual(24.6);
     });
 
     it("variant='bar': a base do eixo é sempre 0, não o mínimo da série", () => {
-      render(
-        <ChartCard title="Chuva" variant="bar" unit="mm" series={[{ label: "Chuva", color: "#06b6d4", points: [1, 5] }]} />,
+      const { container } = render(
+        <ChartCard
+          title="Chuva"
+          variant="bar"
+          unit="mm"
+          series={[{ label: "Chuva", color: "#06b6d4", points: [1, 5] }]}
+        />,
       );
 
-      const axis = screen.getByTestId("chart-axis");
-      expect(axis).toHaveTextContent("5mm");
-      expect(axis).toHaveTextContent("0mm");
-    });
-
-    it("estado vazio não renderiza o eixo lateral", () => {
-      render(<ChartCard title="Chuva" variant="bar" series={[]} />);
-
-      expect(screen.queryByTestId("chart-axis")).not.toBeInTheDocument();
+      const [ticks] = yAxisTicks(container);
+      expect(ticks![0]).toBe("0mm");
+      expect(Math.max(...ticks!.map(tickNumber))).toBeGreaterThanOrEqual(5);
     });
   });
 
   describe("unidade por série (ChartSeries.unit — combos de 2 métricas)", () => {
-    it("cada série usa sua PRÓPRIA unidade no tooltip quando as unidades divergem", () => {
-      render(
+    it("cada série usa sua PRÓPRIA unidade no tooltip quando as unidades divergem", async () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura × Umidade"
           variant="line"
@@ -497,18 +545,13 @@ describe("ChartCard", () => {
         />,
       );
 
-      const hitTargets = screen.getAllByTestId("chart-point-hit");
-      // 2 séries x 2 pontos = 4 alvos; os 2 primeiros são da 1ª série (Temperatura).
-      fireEvent.mouseEnter(hitTargets[0]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("20°C");
-
-      fireEvent.mouseLeave(hitTargets[0]!);
-      fireEvent.mouseEnter(hitTargets[2]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("60%");
+      const tooltip = await hoverAt(container, 50);
+      expect(tooltip).toHaveTextContent("Temperatura20°C");
+      expect(tooltip).toHaveTextContent("Umidade60%");
     });
 
-    it("série sem unit própria cai no unit do card (retrocompatibilidade)", () => {
-      render(
+    it("série sem unit própria cai no unit do card (retrocompatibilidade)", async () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura"
           variant="line"
@@ -517,12 +560,13 @@ describe("ChartCard", () => {
         />,
       );
 
-      fireEvent.mouseEnter(screen.getAllByTestId("chart-point-hit")[0]!);
-      expect(screen.getByTestId("chart-tooltip")).toHaveTextContent("20°C");
+      const tooltip = await hoverAt(container, 50);
+      expect(tooltip).toHaveTextContent("20°C");
+      yAxisTicks(container)[0]!.forEach((tick) => expect(tick).toMatch(/°C$/));
     });
 
-    it("eixo Y lateral é ESCONDIDO quando as séries de linha têm unidades diferentes (misturar °C e % não faria sentido)", () => {
-      render(
+    it("unidades diferentes ganham um eixo Y POR série (°C à esquerda, % à direita) — dividir um eixo só achataria uma das curvas", () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura × Umidade"
           variant="line"
@@ -533,11 +577,14 @@ describe("ChartCard", () => {
         />,
       );
 
-      expect(screen.queryByTestId("chart-axis")).not.toBeInTheDocument();
+      const axes = yAxisTicks(container);
+      expect(axes).toHaveLength(2);
+      axes[0]!.forEach((tick) => expect(tick).toMatch(/°C$/));
+      axes[1]!.forEach((tick) => expect(tick).toMatch(/%$/));
     });
 
-    it("eixo Y lateral continua aparecendo quando todas as séries de linha compartilham a mesma unidade", () => {
-      render(
+    it("séries com a mesma unidade compartilham um eixo Y só, cobrindo as duas", () => {
+      const { container } = render(
         <ChartCard
           title="Temperatura × Sensação"
           variant="line"
@@ -548,13 +595,14 @@ describe("ChartCard", () => {
         />,
       );
 
-      const axis = screen.getByTestId("chart-axis");
-      expect(axis).toHaveTextContent("25°C");
-      expect(axis).toHaveTextContent("17°C");
+      const axes = yAxisTicks(container);
+      expect(axes).toHaveLength(1);
+      expect(Math.min(...axes[0]!.map(tickNumber))).toBeLessThanOrEqual(17);
+      expect(Math.max(...axes[0]!.map(tickNumber))).toBeGreaterThanOrEqual(25);
     });
   });
 
-  it("Card por baixo não recebe shadow (ChartCard é sempre flat, §3.3/§8.8)", () => {
+  it("expõe data-testid='chartcard' na raiz do card", () => {
     render(
       <ChartCard
         title="Chart"
@@ -563,6 +611,6 @@ describe("ChartCard", () => {
       />,
     );
 
-    expect(screen.getByTestId("chartcard")).not.toHaveClass("shadow-card");
+    expect(screen.getByTestId("chartcard")).toContainElement(screen.getByTestId("chart-svg"));
   });
 });

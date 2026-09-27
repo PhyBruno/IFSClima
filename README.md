@@ -18,7 +18,7 @@ Plataforma web que recebe, armazena e visualiza os dados de uma estação meteor
 | Camada | Tecnologia |
 | --- | --- |
 | API | Fastify + Node.js 20 LTS + TypeScript |
-| Web | React 18 + Vite + TypeScript + Tailwind CSS |
+| Web | React 18 + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui (Radix) + Recharts |
 | Banco | PostgreSQL 16 |
 | Testes | Vitest (+ light-my-request na api, Testing Library na web) + Playwright (E2E, `e2e/`) |
 | Containers | Docker + Docker Compose (dev e produção, composes separados) |

@@ -1,50 +1,45 @@
-import { DASHBOARD_NAV_ICON, HISTORICO_NAV_ICON, type DashboardRoute } from "./Sidebar";
+import { cn } from "@/lib/utils";
+import { NAV_ITEMS, type DashboardRoute } from "./Sidebar";
 
 /**
- * `BottomNav` (F6 T6.5 — docs/design-extraction.md §5.5) — navegação fixa do
- * mobile (`md:hidden`; ver `Sidebar` para o equivalente desktop). Mesma
- * decisão de `Sidebar`: "Histórico" (F8 T8.6) agora é um link real para
- * `/historico`, com o mesmo tratamento de `aria-current`/estado ativo de
- * "Dashboard"; nenhum indicador de conexão aqui (vive numa notificação
- * flutuante própria, ver `DashboardPage`).
+ * `BottomNav` — navegação fixa do mobile (`md:hidden`; no desktop é a
+ * `Sidebar`). Mesmos itens e mesmo `aria-current` da `Sidebar`.
  *
- * `position: fixed` no rodapé — o chamador (`DashboardPage`) precisa reservar
- * espaço (`padding-bottom`) no conteúdo pra não ficar coberto por esta barra
- * em telas mobile. Fundo **sólido** (não translúcido — feedback do usuário,
- * 2026-07-24: conteúdo do dashboard não pode aparecer "por trás"/misturado
- * com a barra ao rolar a página).
+ * `position: fixed` no rodapé — as páginas reservam `padding-bottom` para o
+ * conteúdo não ficar coberto. Fundo sólido (não translúcido): o conteúdo não
+ * pode aparecer "por trás" da barra ao rolar.
  */
 export interface BottomNavProps {
   active: DashboardRoute;
   className?: string;
 }
 
-export function BottomNav({ active, className = "" }: BottomNavProps) {
+export function BottomNav({ active, className }: BottomNavProps) {
   return (
     <nav
       aria-label="Navegação principal"
-      className={`fixed inset-x-0 bottom-0 z-10 flex border-t border-border-default bg-surface-sidebar px-2 py-1.5 md:hidden ${className}`.trim()}
+      className={cn(
+        "fixed inset-x-0 bottom-0 z-20 flex border-t bg-background px-2 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] md:hidden",
+        className,
+      )}
     >
-      <a
-        href="/"
-        aria-current={active === "dashboard" ? "page" : undefined}
-        className={`flex flex-1 flex-col items-center gap-0.5 rounded-10 py-1.5 text-[11px] font-medium ${
-          active === "dashboard" ? "text-nav-active-text" : "text-text-tertiary"
-        }`}
-      >
-        {DASHBOARD_NAV_ICON}
-        Dashboard
-      </a>
-      <a
-        href="/historico"
-        aria-current={active === "historico" ? "page" : undefined}
-        className={`flex flex-1 flex-col items-center gap-0.5 rounded-10 py-1.5 text-[11px] font-medium ${
-          active === "historico" ? "text-nav-active-text" : "text-text-tertiary"
-        }`}
-      >
-        {HISTORICO_NAV_ICON}
-        Histórico
-      </a>
+      {NAV_ITEMS.map((item) => {
+        const isActive = item.route === active;
+        return (
+          <a
+            key={item.route}
+            href={item.href}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "flex flex-1 flex-col items-center gap-0.5 rounded-lg py-1.5 text-[11px] font-medium transition-colors [&_svg]:size-5",
+              isActive ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {item.icon}
+            {item.label}
+          </a>
+        );
+      })}
     </nav>
   );
 }

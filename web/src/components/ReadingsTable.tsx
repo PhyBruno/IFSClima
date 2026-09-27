@@ -1,12 +1,23 @@
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { HistoryReading } from "../api-client";
-import { Card } from "./Card";
 import { EmptyState } from "./EmptyState";
 import { formatDayMonth, formatTime } from "../utils/formatTime";
+import { cn } from "@/lib/utils";
 
 /**
  * `ReadingsTable` (F8 T8.6, design.md "Frontend — página /historico") —
- * tabela paginada de leituras brutas (HIST-01..HIST-04). Reusa `Card` (F5,
- * container) e `EmptyState` (F5, intervalo sem dados) em vez de recriar
+ * tabela paginada de leituras brutas (HIST-01..HIST-04) sobre `Table` e
+ * `Card` do shadcn/ui. Reusa `Card` (container) e `EmptyState` (F5, intervalo sem dados) em vez de recriar
  * qualquer um dos dois.
  *
  * **Timestamp em fuso local (HIST-08 aplicado à UI)**: `formatDayMonth` +
@@ -64,7 +75,7 @@ export function ReadingsTable({
   pageSize,
   total,
   onPageChange,
-  className = "",
+  className,
 }: ReadingsTableProps) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const canGoPrev = page > 1;
@@ -72,71 +83,78 @@ export function ReadingsTable({
 
   if (readings.length === 0) {
     return (
-      <Card className={className.trim()}>
-        <EmptyState
-          title="Nenhum dado no período"
-          description="Ajuste o intervalo de datas ou tente novamente mais tarde."
-        />
+      <Card className={className}>
+        <CardContent>
+          <EmptyState
+            title="Nenhum dado no período"
+            description="Ajuste o intervalo de datas ou tente novamente mais tarde."
+          />
+        </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card padding="none" className={className.trim()}>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-          <thead className="bg-surface-table-header text-xs font-semibold tracking-wide text-text-tertiary">
-            <tr>
-              <th scope="col" className="whitespace-nowrap px-4 py-3">
-                Data/Hora
-              </th>
-              {COLUMNS.map((column) => (
-                <th key={column.key} scope="col" className="whitespace-nowrap px-4 py-3">
-                  {column.header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {readings.map((reading) => (
-              <tr key={reading.timestamp} className="border-t border-border-subtle">
-                <td className="whitespace-nowrap px-4 py-3 text-text-primary">
-                  {formatDayMonth(reading.timestamp)} {formatTime(reading.timestamp)}
-                </td>
-                {COLUMNS.map((column) => (
-                  <td key={column.key} className="whitespace-nowrap px-4 py-3 text-text-secondary">
-                    {formatCell(reading[column.key])}
-                  </td>
-                ))}
-              </tr>
+    <Card className={cn("gap-0 py-0", className)}>
+      <Table className="min-w-[640px]">
+        <TableHeader className="bg-muted/50">
+          <TableRow>
+            <TableHead scope="col" className="px-4">
+              Data/Hora
+            </TableHead>
+            {COLUMNS.map((column) => (
+              <TableHead key={column.key} scope="col" className="px-4 text-right">
+                {column.header}
+              </TableHead>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {readings.map((reading) => (
+            <TableRow key={reading.timestamp}>
+              <TableCell className="px-4 font-medium">
+                {formatDayMonth(reading.timestamp)} {formatTime(reading.timestamp)}
+              </TableCell>
+              {COLUMNS.map((column) => (
+                <TableCell
+                  key={column.key}
+                  className="px-4 text-right text-muted-foreground tabular-nums"
+                >
+                  {formatCell(reading[column.key])}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-4 py-3 text-xs text-text-tertiary">
+      <CardFooter className="justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
         <span>
           Página {page} de {totalPages}
         </span>
         <div className="flex gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={!canGoPrev}
             onClick={() => onPageChange(page - 1)}
-            className="rounded-lg border border-border-default px-3 py-1.5 font-medium text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
           >
+            <ChevronLeftIcon aria-hidden="true" data-icon="inline-start" />
             Anterior
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={!canGoNext}
             onClick={() => onPageChange(page + 1)}
-            className="rounded-lg border border-border-default px-3 py-1.5 font-medium text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
           >
             Próxima
-          </button>
+            <ChevronRightIcon aria-hidden="true" data-icon="inline-end" />
+          </Button>
         </div>
-      </div>
+      </CardFooter>
     </Card>
   );
 }

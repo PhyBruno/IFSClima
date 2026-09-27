@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Sidebar } from "../components/Sidebar";
-import { BottomNav } from "../components/BottomNav";
+import { FileSpreadsheetIcon, FileTextIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AppShell } from "../components/AppShell";
 import { DateRangePicker } from "../components/DateRangePicker";
 import { ReadingsTable } from "../components/ReadingsTable";
-import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { useHistory } from "../hooks/useHistory";
 import { buildExportUrl } from "../api-client";
@@ -120,82 +122,76 @@ export function HistoryPage() {
   const showTable = !showError && (data !== undefined || !isPending);
 
   return (
-    <div className="flex min-h-screen bg-surface-page text-text-primary">
-      <Sidebar active="historico" />
+    <AppShell active="historico" section="Histórico">
+      <div className="flex flex-col gap-6">
+        <header className="flex flex-col gap-1">
+          <h1 className="font-heading text-xl font-semibold tracking-tight md:text-2xl">
+            Histórico
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Consulte as leituras brutas de um intervalo e exporte para planilha.
+          </p>
+        </header>
 
-      <main className="flex-1 px-4 pb-32 pt-6 md:pb-8 md:pl-[calc(14rem+2rem)] md:pr-8 md:pt-8">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
-          <header className="flex flex-col gap-1">
-            <h1 className="text-xl font-bold md:text-2xl">Histórico</h1>
-            <p className="text-sm text-text-tertiary">
-              Consulte as leituras brutas de um intervalo e exporte para planilha.
-            </p>
-          </header>
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <DateRangePicker onChange={handleRangeChange} />
 
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <DateRangePicker onChange={handleRangeChange} />
-
-            <div className="flex gap-2">
-              {canExport ? (
-                <a
-                  href={csvUrl}
-                  download
-                  className="rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-semibold text-text-secondary"
-                >
+          <div className="flex gap-2">
+            {canExport ? (
+              <Button asChild variant="outline" size="sm">
+                <a href={csvUrl} download>
+                  <FileTextIcon aria-hidden="true" data-icon="inline-start" />
                   Exportar CSV
                 </a>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-lg border border-border-default bg-surface-card px-3 py-2 text-xs font-semibold text-text-secondary opacity-50 disabled:cursor-not-allowed"
-                >
-                  Exportar CSV
-                </button>
-              )}
-              {canExport ? (
-                <a
-                  href={xlsxUrl}
-                  download
-                  className="rounded-lg bg-brand-primary px-3 py-2 text-xs font-semibold text-white"
-                >
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" disabled>
+                <FileTextIcon aria-hidden="true" data-icon="inline-start" />
+                Exportar CSV
+              </Button>
+            )}
+            {canExport ? (
+              <Button asChild size="sm">
+                <a href={xlsxUrl} download>
+                  <FileSpreadsheetIcon aria-hidden="true" data-icon="inline-start" />
                   Exportar XLSX
                 </a>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-lg bg-brand-primary px-3 py-2 text-xs font-semibold text-white opacity-50 disabled:cursor-not-allowed"
-                >
-                  Exportar XLSX
-                </button>
-              )}
-            </div>
+              </Button>
+            ) : (
+              <Button type="button" size="sm" disabled>
+                <FileSpreadsheetIcon aria-hidden="true" data-icon="inline-start" />
+                Exportar XLSX
+              </Button>
+            )}
           </div>
+        </div>
 
-          {showError ? (
-            <Card>
+        {showError ? (
+          <Card>
+            <CardContent>
               <EmptyState
                 title="Não foi possível carregar as leituras"
                 description="Ajuste o intervalo de datas ou tente novamente mais tarde."
               />
-            </Card>
-          ) : showTable ? (
-            <ReadingsTable
-              readings={readings}
-              page={currentPage}
-              pageSize={pageSize}
-              total={total}
-              onPageChange={setPage}
-            />
-          ) : (
-            <p className="text-sm text-text-tertiary">Carregando leituras…</p>
-          )}
-        </div>
-      </main>
-
-      <BottomNav active="historico" />
-    </div>
+            </CardContent>
+          </Card>
+        ) : showTable ? (
+          <ReadingsTable
+            readings={readings}
+            page={currentPage}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+          />
+        ) : (
+          <div className="flex flex-col gap-2" aria-busy="true">
+            <p className="sr-only">Carregando leituras…</p>
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        )}
+      </div>
+    </AppShell>
   );
 }
 

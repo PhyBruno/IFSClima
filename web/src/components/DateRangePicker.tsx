@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { PeriodSelector, type PeriodOption } from "./PeriodSelector";
 
 /**
@@ -117,7 +120,15 @@ function daysBetweenLocalDates(fromStr: string, toStr: string): number {
     0,
     0,
   );
-  const toStart = new Date(Number(toParts[0]), Number(toParts[1]) - 1, Number(toParts[2]), 0, 0, 0, 0);
+  const toStart = new Date(
+    Number(toParts[0]),
+    Number(toParts[1]) - 1,
+    Number(toParts[2]),
+    0,
+    0,
+    0,
+    0,
+  );
   return Math.round((toStart.getTime() - fromStart.getTime()) / MS_PER_DAY);
 }
 
@@ -152,7 +163,7 @@ export function DateRangePicker({
   defaultPreset = "24h",
   onChange,
   now = () => new Date(),
-  className = "",
+  className,
 }: DateRangePickerProps) {
   const [preset, setPreset] = useState<DateRangePreset>(defaultPreset);
   const [customFrom, setCustomFrom] = useState("");
@@ -210,7 +221,7 @@ export function DateRangePicker({
   }
 
   return (
-    <div className={`flex flex-col gap-3 ${className}`.trim()}>
+    <div className={cn("flex flex-col gap-3", className)}>
       <PeriodSelector
         options={PRESET_OPTIONS}
         value={preset}
@@ -219,35 +230,35 @@ export function DateRangePicker({
 
       {preset === "custom" && (
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="date-range-from" className="text-xs font-medium text-text-tertiary">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="date-range-from" className="text-xs text-muted-foreground">
               De
-            </label>
-            <input
+            </Label>
+            <Input
               id="date-range-from"
               type="date"
               value={customFrom}
               onChange={(event) => handleFromChange(event.target.value)}
-              className="rounded-lg border border-border-default bg-surface-card px-2 py-1.5 text-sm text-text-primary"
+              className="h-8 w-40"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label htmlFor="date-range-to" className="text-xs font-medium text-text-tertiary">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="date-range-to" className="text-xs text-muted-foreground">
               Até
-            </label>
-            <input
+            </Label>
+            <Input
               id="date-range-to"
               type="date"
               value={customTo}
               onChange={(event) => handleToChange(event.target.value)}
-              className="rounded-lg border border-border-default bg-surface-card px-2 py-1.5 text-sm text-text-primary"
+              className="h-8 w-40"
             />
           </div>
         </div>
       )}
 
       {preset === "custom" && customRangeError && (
-        <p role="alert" className="text-xs font-medium text-status-negative">
+        <p role="alert" className="text-xs font-medium text-destructive">
           {customRangeError}
         </p>
       )}

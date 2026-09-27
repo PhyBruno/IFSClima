@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { DateRangePicker, localDateStringToUtcDayBounds } from "../../src/components/DateRangePicker";
+import {
+  DateRangePicker,
+  localDateStringToUtcDayBounds,
+} from "../../src/components/DateRangePicker";
 
 const FIXED_NOW = new Date("2026-07-23T14:30:00.000Z");
 const fixedNow = () => FIXED_NOW;

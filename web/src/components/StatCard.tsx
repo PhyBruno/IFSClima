@@ -1,89 +1,39 @@
 import type { ReactNode } from "react";
-import { Card } from "./Card";
+import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { InfoTooltip } from "./InfoTooltip";
 
 /**
- * `StatCard` — card de sensor (docs/design-extraction.md §5.1).
+ * `StatCard` — card de sensor sobre o `Card` do shadcn/ui.
  *
  * Estrutura: `[chip de ícone] ......... [delta ▲/▼/— + texto]` / `[label]` /
  * `[valor grande][unidade]` / `[sparkline SVG]`.
  *
- * Decisões de API que não estavam 100% determinadas pela extração:
- *
- * - **Estado nulo/offline (DS-04)**: disparado só por `value === null` — não
- *   existe uma prop `offline` separada. Um sensor sem sinal é, por
- *   definição, um sensor sem valor numérico; não há um caso real onde
- *   `value` exista mas o card ainda assim deva parecer "sem dado" (isso
- *   evitaria os dois ficarem dessincronizados, ex. `offline={true}` com um
- *   `value` numérico esquecido). `lastSeenText` é a prop livre (string já
- *   formatada, ex. "Última leitura há 3h") — a lógica de tempo relativo é do
- *   chamador (F6), igual à decisão já tomada em `StatusPill`.
- *
- * - **Cor do chip de ícone (revisão — feedback do usuário, 2026-07-24)**: a
- *   extração (§1.4/§8.4) documenta um `bg` claro por sensor só para o tema
- *   *light* (ex. `#fff7ed` para temperatura). A primeira versão reaproveitava
- *   `bg-surface-chip` nos dois temas por não existir token pra isso — no
- *   light isso deixava todo chip com o mesmo fundo escuro do dark (`#1c2129`),
- *   visualmente errado. Corrigido com os novos tokens `--color-sensor-*-bg`
- *   (`theme.css`/`tailwind.config.js`): no dark apontam pro chip neutro (sem
- *   mudança de comportamento), no light resolvem pro pastel por sensor do
- *   mock. O **ícone** em si (stroke, via `text-sensor-*`/`currentColor`)
- *   continua carregando a cor de acento do sensor, sem mudança.
- *
- * - **Bg escuro do card offline (§5.1: "surface.sidebar, não surface.card")
- *   nos dois temas**: `bg-surface-sidebar` é aplicado sem condicional de
- *   tema. Isso funciona nos dois temas por uma coincidência real dos tokens,
- *   não por acaso não verificado: no dark, `surface.sidebar` (`#12161d`) é
- *   de fato mais escuro que `surface.card` (`#161b22`), batendo com o
- *   comportamento pedido; no light, `surface.sidebar` e `surface.card` são
- *   **o mesmo branco** (`#ffffff`, §8.1), então aplicar `surface.sidebar`
- *   ali produz exatamente o "no light pode manter surface.card normal" que
- *   a tarefa pede, sem precisar de nenhuma lógica condicional por tema.
- *
- * - **Override de borda/fundo do `Card` no estado offline via `!important`**:
- *   `Card` sempre emite `bg-surface-card`/`border-border-default` (não tem
- *   prop para desligar isso, só `radius` sobrescreve radius). Como o projeto
- *   não usa `tailwind-merge` (ver o próprio comentário em `Card.tsx`), duas
- *   classes de cor do mesmo tipo (`bg-surface-card` vs `bg-surface-sidebar`,
- *   `border-border-default` vs `border-border-dashed`) teriam um vencedor
- *   ambíguo dependendo da ordem de geração do Tailwind. Em vez de duplicar a
- *   lógica de padding/radius do `Card` num `<div>` à parte, sobrescrevemos
- *   com o prefixo `!` (important) do Tailwind, que vence de forma
- *   determinística independente da ordem de geração — mais simples que
- *   duplicar `Card` e ainda reaproveita seu radius/padding.
- *
- * - **Delta**: só renderizado quando `trend` é passado (nenhuma seta é
- *   inventada quando o chamador não sabe a tendência). Cor 100% por direção
- *   (§1.5) — não depende do sensor. A seta (▲/▼/—) é texto normal ao lado do
- *   `deltaText`, não um ícone `aria-hidden` desacompanhado — a informação
- *   não depende só de cor (DS-06).
- *
- * - **Sparkline**: `<svg><polyline>` sem preenchimento, normalizado pelo
- *   min/max da própria série (sem eixo). Com menos de 2 pontos não desenha
- *   nada (uma polyline de 1 ponto não é uma linha) em vez de arriscar um
- *   `NaN`/path degenerado.
- *
- * - **`badge`/`tooltip` (pedido do usuário, 2026-08-16)**: dois slots opcionais
- *   ao lado do label, sem nenhuma lógica própria aqui — `StatCard` não sabe o
- *   que é "criticidade OMS" nem "como a umidade é calculada", só reserva o
- *   espaço. `badge` (ex. `UvBadge`) só aparece no estado normal (offline não
- *   tem valor pra classificar); `tooltip` (texto → `InfoTooltip`) aparece nos
- *   dois estados, por ser uma explicação do SENSOR, não do valor atual.
- *
- * - **Número tabular**: valor usa `font-bold tabular-nums` + leve
- *   `tracking` negativo (§2: `-0.02em` observado em 27px), evitando jitter
- *   de largura quando o valor muda (ex. polling ao vivo em F6).
+ * - **Estado "sem sinal" (DS-04)**: disparado só por `value === null` — não
+ *   existe prop `offline` separada (evita os dois dessincronizarem). Borda
+ *   tracejada + fundo apagado; `lastSeenText` é texto livre do chamador.
+ * - **Chip de ícone**: fundo translúcido da cor do sensor (opacidade 12% do acento)
+ *   com o ícone no acento cheio — funciona igual nos dois temas.
+ * - **Delta**: só com `trend`; cor por direção (não por sensor). A seta é
+ *   texto visível, a informação não depende só de cor (DS-06).
+ * - **Sparkline**: `<polyline>` normalizada pelo min/max da própria série;
+ *   com menos de 2 pontos não desenha nada.
+ * - **`badge`/`tooltip`**: slots ao lado do label. `badge` só no estado
+ *   normal (sem valor não há o que classificar); `tooltip` nos dois, por
+ *   explicar o SENSOR e não a leitura atual.
+ * - **Número tabular** (`tabular-nums`) evita jitter quando o valor muda
+ *   durante o polling.
  */
 export type SensorType = "temperature" | "humidity" | "pressure" | "uv" | "rain" | "wind";
 export type Trend = "up" | "down" | "flat";
 
-const SENSOR_ICON_TEXT_CLASS: Record<SensorType, string> = {
-  temperature: "text-sensor-temperature",
-  humidity: "text-sensor-humidity",
-  pressure: "text-sensor-pressure",
-  uv: "text-sensor-uv",
-  rain: "text-sensor-rain",
-  wind: "text-sensor-wind",
+const SENSOR_CHIP_CLASS: Record<SensorType, string> = {
+  temperature: "bg-sensor-temperature/12 text-sensor-temperature",
+  humidity: "bg-sensor-humidity/12 text-sensor-humidity",
+  pressure: "bg-sensor-pressure/12 text-sensor-pressure",
+  uv: "bg-sensor-uv/12 text-sensor-uv",
+  rain: "bg-sensor-rain/12 text-sensor-rain",
+  wind: "bg-sensor-wind/12 text-sensor-wind",
 };
 
 const SENSOR_STROKE_CLASS: Record<SensorType, string> = {
@@ -95,20 +45,10 @@ const SENSOR_STROKE_CLASS: Record<SensorType, string> = {
   wind: "stroke-sensor-wind",
 };
 
-/** Fundo do chip de ícone por sensor — dark: neutro (chip único); light: pastel por sensor (§8.4, feedback do usuário 2026-07-24). */
-const SENSOR_CHIP_BG_CLASS: Record<SensorType, string> = {
-  temperature: "bg-sensor-temperature-bg",
-  humidity: "bg-sensor-humidity-bg",
-  pressure: "bg-sensor-pressure-bg",
-  uv: "bg-sensor-uv-bg",
-  rain: "bg-sensor-rain-bg",
-  wind: "bg-sensor-wind-bg",
-};
-
 const TREND_TEXT_CLASS: Record<Trend, string> = {
-  up: "text-status-positive",
-  down: "text-status-negative",
-  flat: "text-status-neutral",
+  up: "text-success",
+  down: "text-destructive",
+  flat: "text-muted-foreground",
 };
 
 const TREND_ARROW: Record<Trend, string> = {
@@ -121,30 +61,22 @@ export interface StatCardProps {
   sensor: SensorType;
   /** Nome de exibição do sensor, ex. "Temperatura". */
   label: string;
-  /** `null` dispara a variante "sem sinal" (ver DS-04, docstring acima). */
+  /** `null` dispara a variante "sem sinal" (DS-04). */
   value: number | null;
   unit: string;
-  /** SVG do sensor — deve usar `stroke="currentColor"` para herdar o acento. */
+  /** Ícone do sensor — deve usar `currentColor` para herdar o acento. */
   icon: ReactNode;
-  /** Direção do delta — NÃO é por sensor, ver §1.5. Omitido = sem delta. */
+  /** Direção do delta — NÃO é por sensor. Omitido = sem delta. */
   trend?: Trend;
   /** Texto ao lado da seta, ex. "+0.4°C" ou "estável". */
   deltaText?: string;
   /** Valores para o sparkline. Menos de 2 pontos = sem gráfico (sem crash). */
   sparklinePoints?: number[];
-  /** Texto livre pro estado offline, ex. "Última leitura há 3h". */
+  /** Texto livre pro estado "sem sinal", ex. "Última leitura há 3h". */
   lastSeenText?: string;
-  /**
-   * Badge livre ao lado do label, ex. `UvBadge` no card de Índice UV (pedido
-   * do usuário, 2026-08-16) — `StatCard` não sabe nada de criticidade OMS,
-   * só reserva o slot; quem decide o conteúdo é o chamador (`SensorGrid`).
-   */
+  /** Badge livre ao lado do label (ex. `UvBadge`), só no estado normal. */
   badge?: ReactNode;
-  /**
-   * Texto de `InfoTooltip` ao lado do label explicando como o valor é
-   * calculado (pedido do usuário, 2026-08-16: Umidade e Índice UV). Omitido
-   * = sem ícone "i", igual a hoje para os demais sensores.
-   */
+  /** Texto de `InfoTooltip` ao lado do label explicando o cálculo. */
   tooltip?: string;
   className?: string;
 }
@@ -159,8 +91,7 @@ function Sparkline({ points, strokeClass }: { points: number[] | undefined; stro
 
   const min = Math.min(...points);
   const max = Math.max(...points);
-  // Série constante (min === max): evita divisão por zero, desenha uma
-  // linha reta no meio da altura em vez de espalhar valores para NaN.
+  // Série constante (min === max): evita divisão por zero (linha reta no meio).
   const range = max - min || 1;
   const step = SPARKLINE_WIDTH / (points.length - 1);
 
@@ -186,9 +117,30 @@ function Sparkline({ points, strokeClass }: { points: number[] | undefined; stro
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
         className={strokeClass}
       />
     </svg>
+  );
+}
+
+function LabelRow({
+  label,
+  tooltip,
+  badge,
+}: {
+  label: string;
+  tooltip?: string;
+  badge?: ReactNode;
+}) {
+  return (
+    <p className="flex items-center gap-1 text-xs font-medium text-muted-foreground md:text-[13px]">
+      {label}
+      {tooltip ? (
+        <InfoTooltip label={`Como ${label.toLowerCase()} é calculado(a)`}>{tooltip}</InfoTooltip>
+      ) : null}
+      {badge}
+    </p>
   );
 }
 
@@ -204,17 +156,17 @@ export function StatCard({
   lastSeenText,
   badge,
   tooltip,
-  className = "",
+  className,
 }: StatCardProps) {
   const offline = value === null;
 
   const iconChip = (
     <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-10 ${
-        offline
-          ? "bg-surface-chip text-text-faint"
-          : `${SENSOR_CHIP_BG_CLASS[sensor]} ${SENSOR_ICON_TEXT_CLASS[sensor]}`
-      }`}
+      data-testid="statcard-icon"
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-lg [&_svg]:size-4.5",
+        offline ? "bg-muted text-muted-foreground" : SENSOR_CHIP_CLASS[sensor],
+      )}
     >
       {icon}
     </span>
@@ -223,55 +175,49 @@ export function StatCard({
   if (offline) {
     return (
       <Card
-        padding="none"
+        size="sm"
         data-testid="statcard"
-        className={`flex flex-col gap-1.5 border-dashed !border-border-dashed !bg-surface-sidebar p-[11px] md:gap-2.5 md:p-4 ${className}`.trim()}
+        data-state="offline"
+        className={cn(
+          "bg-muted/30 shadow-none ring-0 border border-dashed md:[--card-spacing:--spacing(4)]",
+          className,
+        )}
       >
-        <div className="flex items-center justify-between">{iconChip}</div>
-        <p className="flex items-center gap-1 text-[11px] font-medium text-text-tertiary md:text-[12.5px]">
-          {label}
-          {tooltip ? (
-            <InfoTooltip label={`Como ${label.toLowerCase()} é calculado(a)`}>
-              {tooltip}
-            </InfoTooltip>
-          ) : null}
-        </p>
-        <p className="text-sm font-medium text-text-tertiary">Sem sinal</p>
-        {lastSeenText ? <p className="text-xs text-text-disabled">{lastSeenText}</p> : null}
+        <CardContent className="flex flex-col gap-1.5 md:gap-2.5">
+          <div className="flex items-center justify-between">{iconChip}</div>
+          <LabelRow label={label} tooltip={tooltip} />
+          <p className="text-sm font-medium text-muted-foreground">Sem sinal</p>
+          {lastSeenText ? <p className="text-xs text-muted-foreground/70">{lastSeenText}</p> : null}
+        </CardContent>
       </Card>
     );
   }
 
   return (
     <Card
-      shadow
-      padding="none"
+      size="sm"
       data-testid="statcard"
-      className={`flex flex-col gap-1.5 p-[11px] md:gap-2.5 md:p-4 ${className}`.trim()}
+      className={cn("shadow-xs md:[--card-spacing:--spacing(4)]", className)}
     >
-      <div className="flex items-center justify-between">
-        {iconChip}
-        {trend ? (
-          <span className={`text-[10px] font-bold md:text-xs ${TREND_TEXT_CLASS[trend]}`}>
-            {TREND_ARROW[trend]}
-            {deltaText ? ` ${deltaText}` : ""}
+      <CardContent className="flex flex-col gap-1.5 md:gap-2.5">
+        <div className="flex items-center justify-between">
+          {iconChip}
+          {trend ? (
+            <span className={cn("text-[10px] font-semibold md:text-xs", TREND_TEXT_CLASS[trend])}>
+              {TREND_ARROW[trend]}
+              {deltaText ? ` ${deltaText}` : ""}
+            </span>
+          ) : null}
+        </div>
+        <LabelRow label={label} tooltip={tooltip} badge={badge} />
+        <p className="flex items-baseline gap-1">
+          <span className="font-heading text-xl font-semibold tabular-nums tracking-tight text-card-foreground md:text-[27px]">
+            {value}
           </span>
-        ) : null}
-      </div>
-      <p className="flex items-center gap-1 text-[11px] font-medium text-text-tertiary md:text-[12.5px]">
-        {label}
-        {tooltip ? (
-          <InfoTooltip label={`Como ${label.toLowerCase()} é calculado(a)`}>{tooltip}</InfoTooltip>
-        ) : null}
-        {badge}
-      </p>
-      <p className="flex items-baseline gap-1">
-        <span className="text-[20px] font-bold tabular-nums tracking-[-0.02em] text-text-primary md:text-[27px]">
-          {value}
-        </span>
-        <span className="text-[10.5px] text-text-muted">{unit}</span>
-      </p>
-      <Sparkline points={sparklinePoints} strokeClass={SENSOR_STROKE_CLASS[sensor]} />
+          <span className="text-xs text-muted-foreground">{unit}</span>
+        </p>
+        <Sparkline points={sparklinePoints} strokeClass={SENSOR_STROKE_CLASS[sensor]} />
+      </CardContent>
     </Card>
   );
 }

@@ -1,5 +1,5 @@
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 import { formatDayMonth, formatTime } from "./formatTime";
 
 /**
@@ -25,6 +25,12 @@ import { formatDayMonth, formatTime } from "./formatTime";
  * dentro do elemento capturado é pulado pelo `html2canvas` — usado pelo
  * próprio botão "Exportar PDF" (fica dentro do header capturado, mas nunca
  * deveria aparecer NO PDF que ele mesmo gera).
+ *
+ * **`html2canvas-pro`, não `html2canvas`**: o tema do shadcn/ui (Tailwind v4)
+ * define todas as cores em `oklch()`, que o `html2canvas` original não sabe
+ * interpretar (aborta a captura). O fork `-pro` tem a mesma API e suporta
+ * `oklch`/`color-mix`. O fundo da captura é o `background-color` real do
+ * `<body>` no momento do clique — segue o tema ativo (claro/escuro).
  */
 export interface ExportDashboardPdfOptions {
   /** Elemento DOM a capturar — tipicamente o container principal da página (sem Sidebar/BottomNav). */
@@ -143,7 +149,7 @@ export async function exportDashboardToPdf({
   generatedAt = new Date(),
 }: ExportDashboardPdfOptions): Promise<void> {
   const canvas = await html2canvas(element, {
-    backgroundColor: "#0d1117",
+    backgroundColor: getComputedStyle(document.body).backgroundColor,
     scale: 2,
     height: Math.ceil(element.getBoundingClientRect().height) + CAPTURE_BOTTOM_BUFFER_PX,
     ignoreElements: (node) => node instanceof HTMLElement && node.dataset.pdfIgnore === "true",

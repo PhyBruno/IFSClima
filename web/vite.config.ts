@@ -1,9 +1,17 @@
 /// <reference types="vitest/config" />
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  // Alias `@/` -> src/ (exigido pelo shadcn/ui; espelha `paths` dos tsconfig).
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   server: {
     port: 5173,
     host: true,
@@ -29,7 +37,14 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "lcov"],
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/main.tsx", "src/vite-env.d.ts"],
+      // `components/ui` e `hooks/use-mobile` são código vendorizado do shadcn/ui
+      // (gerado pela CLI, não escrito aqui) — fora da meta de cobertura.
+      exclude: [
+        "src/main.tsx",
+        "src/vite-env.d.ts",
+        "src/components/ui/**",
+        "src/hooks/use-mobile.ts",
+      ],
       thresholds: {
         lines: 80,
         functions: 80,

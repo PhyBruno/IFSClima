@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useLatest } from "../hooks/useLatest";
+import { FileDownIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AppShell } from "../components/AppShell";
 import { StatusPill } from "../components/StatusPill";
-import { Sidebar } from "../components/Sidebar";
-import { BottomNav } from "../components/BottomNav";
 import { SensorGrid } from "../components/SensorGrid";
 import { ChartsSection } from "../components/ChartsSection";
 import { formatTime, formatDayMonth } from "../utils/formatTime";
@@ -137,60 +138,45 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-surface-page text-text-primary">
-      <Sidebar active="dashboard" />
-
+    <AppShell active="dashboard" section="Dashboard">
       {showOfflineIndicator && (
-        <div role="status" aria-live="polite" className="fixed right-4 top-4 z-50">
+        <div role="status" aria-live="polite" className="fixed top-4 right-4 z-50">
           <StatusPill variant="card" online={false} lastReadingAt={lastReadingLabel} />
         </div>
       )}
 
-      {/* pb-32 (128px) no mobile: espaço reservado pro fim da página nunca
-          ficar coberto pela `BottomNav` fixa (~48px de altura) — margem
-          generosa de sobra, não só o mínimo. Sem padding extra a partir de
-          md: (BottomNav some, vira Sidebar). */}
-      <main className="flex-1 px-4 pb-32 pt-6 md:pb-8 md:pl-[calc(14rem+2rem)] md:pr-8 md:pt-8">
-        {/* max-w-5xl (1024px) sobrava espaço vazio óbvio em desktops largos
-            (feedback do usuário, 2026-07-24) — 1600px aproveita a largura
-            real ao lado da Sidebar sem esticar demais em ultrawide. */}
-        <div ref={contentRef} className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
-          <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="flex flex-col gap-1">
-              <h1 className="text-xl font-bold md:text-2xl">Painel de Monitoramento</h1>
-              <p className="text-sm text-text-tertiary">
-                Sensores mostram a leitura mais recente da estação; os gráficos mostram a média
-                histórica do período selecionado.
-              </p>
-            </div>
-            <div className="flex flex-col items-start gap-1 md:items-end" data-pdf-ignore="true">
-              <button
-                type="button"
-                onClick={handleExportPdf}
-                disabled={isExporting}
-                className="shrink-0 rounded-lg bg-brand-primary px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isExporting ? "Gerando PDF…" : "Exportar PDF"}
-              </button>
-              {exportError ? (
-                <span role="alert" className="text-xs text-status-negative">
-                  Não foi possível gerar o PDF. Tente novamente.
-                </span>
-              ) : null}
-            </div>
-          </header>
+      <div ref={contentRef} className="flex flex-col gap-6">
+        <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="flex flex-col gap-1">
+            <h1 className="font-heading text-xl font-semibold tracking-tight md:text-2xl">
+              Painel de Monitoramento
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Sensores mostram a leitura mais recente da estação; os gráficos mostram a média
+              histórica do período selecionado.
+            </p>
+          </div>
+          <div className="flex flex-col items-start gap-1 md:items-end" data-pdf-ignore="true">
+            <Button type="button" size="sm" onClick={handleExportPdf} disabled={isExporting}>
+              <FileDownIcon aria-hidden="true" data-icon="inline-start" />
+              {isExporting ? "Gerando PDF…" : "Exportar PDF"}
+            </Button>
+            {exportError ? (
+              <span role="alert" className="text-xs text-destructive">
+                Não foi possível gerar o PDF. Tente novamente.
+              </span>
+            ) : null}
+          </div>
+        </header>
 
-          <SensorGrid />
-          <ChartsSection />
+        <SensorGrid />
+        <ChartsSection />
 
-          <footer className="mt-2 flex flex-col items-center gap-1 border-t border-border-subtle pt-4 text-center text-xs text-text-faint md:flex-row md:text-left">
-            <span>{ageText}</span>
-          </footer>
-        </div>
-      </main>
-
-      <BottomNav active="dashboard" />
-    </div>
+        <footer className="mt-2 flex flex-col items-center gap-1 border-t pt-4 text-center text-xs text-muted-foreground md:flex-row md:text-left">
+          <span>{ageText}</span>
+        </footer>
+      </div>
+    </AppShell>
   );
 }
 

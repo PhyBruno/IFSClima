@@ -25,19 +25,19 @@ describe("StatCard", () => {
     expect(chip).not.toHaveClass("text-sensor-humidity");
   });
 
-  it("valor grande usa peso 700 + tabular-nums (evita jitter de largura)", () => {
+  it("valor grande usa tabular-nums (evita jitter de largura durante o polling)", () => {
     render(
       <StatCard sensor="temperature" label="Temperatura" value={24.6} unit="°C" icon={ICON} />,
     );
 
     const value = screen.getByText("24.6");
-    expect(value).toHaveClass("font-bold", "tabular-nums");
+    expect(value).toHaveClass("tabular-nums");
   });
 
   it.each([
-    ["up", "status-positive", "▲"],
-    ["down", "status-negative", "▼"],
-    ["flat", "status-neutral", "—"],
+    ["up", "success", "▲"],
+    ["down", "destructive", "▼"],
+    ["flat", "muted-foreground", "—"],
   ] as const)(
     "trend='%s' usa cor %s e seta '%s' — direcional, não por sensor",
     (trend, colorClass, arrow) => {
@@ -70,7 +70,7 @@ describe("StatCard", () => {
         deltaText="+1"
       />,
     );
-    expect(screen.getByText("▲ +1")).toHaveClass("text-status-positive");
+    expect(screen.getByText("▲ +1")).toHaveClass("text-success");
 
     rerender(
       <StatCard
@@ -83,14 +83,14 @@ describe("StatCard", () => {
         deltaText="+1"
       />,
     );
-    expect(screen.getByText("▲ +1")).toHaveClass("text-status-positive");
+    expect(screen.getByText("▲ +1")).toHaveClass("text-success");
   });
 
   it("trend sem deltaText mostra só a seta, sem espaço/undefined sobrando", () => {
     render(<StatCard sensor="rain" label="Chuva" value={4} unit="mm" icon={ICON} trend="flat" />);
 
     const delta = screen.getByText("—");
-    expect(delta).toHaveClass("text-status-neutral");
+    expect(delta).toHaveClass("text-muted-foreground");
   });
 
   it("sem prop trend, não renderiza nenhuma seta/delta inventada", () => {
@@ -219,11 +219,11 @@ describe("StatCard", () => {
       expect(screen.queryByTestId("sparkline")).not.toBeInTheDocument();
     });
 
-    it("ícone fica acinzentado (text-text-faint), não com a cor do sensor", () => {
+    it("ícone fica acinzentado (text-muted-foreground), não com a cor do sensor", () => {
       render(<StatCard sensor="wind" label="Vento" value={null} unit="km/h" icon={ICON} />);
 
       const chip = screen.getByTestId("icon").parentElement;
-      expect(chip).toHaveClass("text-text-faint");
+      expect(chip).toHaveClass("text-muted-foreground");
       expect(chip).not.toHaveClass("text-sensor-wind");
     });
 
@@ -231,7 +231,8 @@ describe("StatCard", () => {
       render(<StatCard sensor="wind" label="Vento" value={null} unit="km/h" icon={ICON} />);
 
       const card = screen.getByTestId("statcard");
-      expect(card).toHaveClass("border-dashed", "!border-border-dashed");
+      expect(card).toHaveClass("border-dashed");
+      expect(card).toHaveAttribute("data-state", "offline");
     });
 
     it("não renderiza delta nenhum no estado offline mesmo se trend for passado", () => {
@@ -276,7 +277,7 @@ describe("StatCard", () => {
       expect(screen.getByTestId("fake-badge")).toBeInTheDocument();
     });
 
-    it("renderiza o ícone de tooltip quando `tooltip` é passado, com aria-label derivado do label", () => {
+    it("renderiza o ícone de tooltip quando `tooltip` é passado, com aria-label derivado do label", async () => {
       render(
         <StatCard
           sensor="humidity"
@@ -291,8 +292,9 @@ describe("StatCard", () => {
       const button = screen.getByRole("button", { name: /como umidade é calculado/i });
       expect(button).toBeInTheDocument();
 
-      fireEvent.mouseEnter(button);
-      expect(screen.getByRole("tooltip")).toHaveTextContent("Explicação.");
+      // Clique abre o Tooltip do Radix (mesmo caminho do toque no mobile).
+      fireEvent.click(button);
+      expect(await screen.findByRole("tooltip")).toHaveTextContent("Explicação.");
     });
 
     it("estado offline (value=null) ainda mostra o tooltip, mas nunca a badge", () => {

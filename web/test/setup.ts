@@ -10,6 +10,32 @@ import { server } from "./mocks/server";
 // suíte inteira ficar determinística e não depender do fuso do host.
 process.env.TZ = "UTC";
 
+// APIs de navegador que o jsdom não implementa e que os componentes do
+// shadcn/ui usam: `matchMedia` (hook `useIsMobile` do Sidebar) e
+// `ResizeObserver` (`ResponsiveContainer` do Recharts nos gráficos e o
+// Radix). Stubs mínimos — nenhum teste depende do resultado de layout.
+if (!window.matchMedia) {
+  window.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+}
+
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // F6 T6.1: ciclo de vida global do MSW — qualquer teste pode usar
 // `server.use(...)` para sobrescrever handlers sem afetar os demais.
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));

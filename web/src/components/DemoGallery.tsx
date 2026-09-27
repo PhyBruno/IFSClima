@@ -1,5 +1,13 @@
 import type { ReactNode } from "react";
-import { Card } from "./Card";
+import {
+  CloudRainIcon,
+  DropletsIcon,
+  GaugeIcon,
+  SunIcon,
+  ThermometerIcon,
+  WindIcon,
+} from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, type SensorType } from "./StatCard";
 import { ChartCard, type ChartSeries } from "./ChartCard";
 import { PeriodSelector } from "./PeriodSelector";
@@ -21,11 +29,14 @@ import { ThemeToggle } from "./ThemeToggle";
  * todo sensor, só para satisfazer a prop obrigatória `icon` do `StatCard`.
  */
 
-const PLACEHOLDER_ICON: ReactNode = (
-  <svg viewBox="0 0 24 24" width={16} height={16} fill="none" aria-hidden="true">
-    <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth={2} />
-  </svg>
-);
+const SENSOR_ICONS: Record<SensorType, ReactNode> = {
+  temperature: <ThermometerIcon aria-hidden="true" />,
+  humidity: <DropletsIcon aria-hidden="true" />,
+  pressure: <GaugeIcon aria-hidden="true" />,
+  uv: <SunIcon aria-hidden="true" />,
+  rain: <CloudRainIcon aria-hidden="true" />,
+  wind: <WindIcon aria-hidden="true" />,
+};
 
 const SENSORS: Array<{ sensor: SensorType; label: string; value: number; unit: string }> = [
   { sensor: "temperature", label: "Temperatura", value: 24.7, unit: "°C" },
@@ -37,12 +48,22 @@ const SENSORS: Array<{ sensor: SensorType; label: string; value: number; unit: s
 ];
 
 const LINE_SERIES: ChartSeries[] = [
-  { label: "Temperatura", color: "#f97316", points: [21, 22, 24, 23, 25, 24.7] },
-  { label: "Umidade", color: "#0ea5e9", points: [58, 60, 63, 61, 59, 62] },
+  {
+    label: "Temperatura",
+    color: "var(--sensor-temperature)",
+    points: [21, 22, 24, 23, 25, 24.7],
+    unit: "°C",
+  },
+  {
+    label: "Umidade",
+    color: "var(--sensor-humidity)",
+    points: [58, 60, 63, 61, 59, 62],
+    unit: "%",
+  },
 ];
 
 const BAR_SERIES: ChartSeries[] = [
-  { label: "Chuva", color: "#14b8a6", points: [0, 0.5, 3.2, 1.1, 0, 0.8] },
+  { label: "Chuva", color: "var(--sensor-rain)", points: [0, 0.5, 3.2, 1.1, 0, 0.8], unit: "mm" },
 ];
 
 function Section({
@@ -57,11 +78,11 @@ function Section({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-baseline gap-2">
-        <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+        <h2 className="font-heading text-base font-semibold">{title}</h2>
         {/* Nome técnico do componente exibido como símbolo de código (não é
             prosa em inglês) — mantém a utilidade da galeria de comparação sem
             deixar o título de seção em inglês puro. */}
-        <code className="text-xs text-text-muted">{`<${component} />`}</code>
+        <code className="font-mono text-xs text-muted-foreground">{`<${component} />`}</code>
       </div>
       {children}
     </section>
@@ -70,10 +91,12 @@ function Section({
 
 export function DemoGallery() {
   return (
-    <div className="min-h-screen bg-surface-page px-4 py-6 text-text-primary md:px-8 md:py-10">
+    <div className="min-h-screen bg-background px-4 py-6 text-foreground md:px-8 md:py-10">
       <header className="mb-8 flex items-center justify-between gap-4">
-        <h1 className="text-xl font-bold">Galeria de Componentes</h1>
-        <div className="flex items-center gap-2 text-xs text-text-tertiary">
+        <h1 className="font-heading text-xl font-semibold tracking-tight">
+          Galeria de Componentes
+        </h1>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Modo escuro</span>
           <ThemeToggle />
         </div>
@@ -81,7 +104,13 @@ export function DemoGallery() {
 
       <div className="flex flex-col gap-10">
         <Section title="Cartão base" component="Card">
-          <Card>Cartão padrão (padding md, sem sombra)</Card>
+          <Card className="max-w-sm">
+            <CardHeader>
+              <CardTitle>Cartão padrão</CardTitle>
+              <CardDescription>Base de todos os cards do painel (shadcn/ui).</CardDescription>
+            </CardHeader>
+            <CardContent className="text-muted-foreground">Conteúdo do cartão.</CardContent>
+          </Card>
         </Section>
 
         <Section title="Cartão de sensor" component="StatCard">
@@ -93,7 +122,7 @@ export function DemoGallery() {
                 label={item.label}
                 value={item.value}
                 unit={item.unit}
-                icon={PLACEHOLDER_ICON}
+                icon={SENSOR_ICONS[item.sensor]}
                 trend="up"
                 deltaText="+0.4"
                 sparklinePoints={[1, 3, 2, 4, 3, 5]}
@@ -104,7 +133,7 @@ export function DemoGallery() {
               label="Vento"
               value={null}
               unit="km/h"
-              icon={PLACEHOLDER_ICON}
+              icon={SENSOR_ICONS.wind}
               lastSeenText="Última leitura há 3h"
             />
           </div>
@@ -118,7 +147,7 @@ export function DemoGallery() {
               series={LINE_SERIES}
               xLabels={["00:00", "12:00", "23:00"]}
             />
-            <ChartCard title="Chuva acumulada (7d)" variant="bar" series={BAR_SERIES} />
+            <ChartCard title="Chuva acumulada (7d)" variant="bar" series={BAR_SERIES} unit="mm" />
             <ChartCard title="Sem dados no período" variant="line" series={[]} />
           </div>
         </Section>

@@ -20,20 +20,20 @@ describe("StatusPill", () => {
 
     const text = screen.getByText("Offline");
     expect(text).toBeInTheDocument();
-    expect(text).toHaveClass("text-status-negative");
+    expect(text).toHaveClass("text-destructive");
   });
 
   it("estado offline muda o texto (inline) e aplica cor de alerta", () => {
     render(<StatusPill variant="inline" online={false} />);
 
     const text = screen.getByText("Estação offline");
-    expect(text).toHaveClass("text-status-negative");
+    expect(text).toHaveClass("text-destructive");
   });
 
-  it("estado online aplica a cor de status.online (distinta da offline)", () => {
+  it("estado online aplica a cor de sucesso (distinta da offline)", () => {
     render(<StatusPill variant="card" online />);
 
-    expect(screen.getByText("Online")).toHaveClass("text-status-online-text");
+    expect(screen.getByText("Online")).toHaveClass("text-success");
   });
 
   it("lastReadingAt ausente não renderiza a linha secundária nem 'undefined'", () => {

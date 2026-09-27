@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
@@ -30,6 +30,62 @@ beforeAll(() => {
     process.env.TZ = originalTZ;
   };
 });
+
+/**
+ * O jsdom não tem layout: o `ResponsiveContainer` do Recharts (dentro do
+ * `ChartCard`) lê `getBoundingClientRect()` ao montar e, com 0x0, não desenha
+ * nada. Finge 320x200 pra todo elemento HTML menos `<span>` (onde o Recharts
+ * mede o texto dos ticks — 320x200 ali faria os rótulos "colidirem").
+ */
+const CHART_RECT = {
+  x: 0,
+  y: 0,
+  top: 0,
+  left: 0,
+  right: 320,
+  bottom: 200,
+  width: 320,
+  height: 200,
+  toJSON: () => ({}),
+} as DOMRect;
+
+beforeEach(() => {
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.tagName === "SPAN" ? original.call(this) : CHART_RECT;
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+/** `ChartCard` real (não skeleton) cujo título é exatamente `title`. */
+function chartCardByTitle(title: string): HTMLElement {
+  return screen
+    .getByRole("heading", { name: title, level: 3 })
+    .closest<HTMLElement>('[data-testid="chartcard"]')!;
+}
+
+/** Rótulos dos ticks de cada eixo Y do card (esquerdo, direito). */
+function yAxisTicks(card: HTMLElement): string[][] {
+  return Array.from(card.querySelectorAll(".recharts-yAxis-tick-labels")).map((axis) =>
+    Array.from(axis.querySelectorAll("text")).map((text) => text.textContent ?? ""),
+  );
+}
+
+/**
+ * Passa o mouse perto do 1º ponto do card e espera o tooltip do Recharts
+ * (atualizado num requestAnimationFrame, daí o `waitFor`).
+ */
+async function hoverFirstPoint(card: HTMLElement): Promise<HTMLElement> {
+  fireEvent.mouseMove(card.querySelector(".recharts-wrapper")!, { clientX: 50, clientY: 50 });
+  const tooltip = card.querySelector<HTMLElement>(".recharts-tooltip-wrapper")!;
+  await waitFor(() => expect(tooltip).toBeVisible());
+  return tooltip;
+}
 
 function createWrapper() {
   const client = createQueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -301,14 +357,17 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     // elemento com o texto exato "Chuva" (o título do card standalone).
     await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
-    const rainCard = screen
-      .getByRole("heading", { name: "Chuva", level: 3 })
-      .closest('[data-testid="chartcard"]')!;
-    const svg = rainCard.querySelector('[data-testid="chart-svg"]')!;
-    expect(svg.querySelectorAll("polyline")).toHaveLength(1);
-    expect(svg.querySelectorAll("rect")).toHaveLength(0);
-    // pointLabels/tooltip usam os mesmos valores de `sum` de antes (rainSeriesFixture: 0.4, 0.1) — só o traço visual mudou.
-    expect(bucketsToPointLabels(rainSeriesFixture, "sum")).toEqual(["13:00", "14:00"]);
+    const rainCard = chartCardByTitle("Chuva");
+    expect(
+      within(rainCard).getByRole("img", { name: "Gráfico de linha: Chuva" }),
+    ).toBeInTheDocument();
+    expect(rainCard.querySelectorAll(".recharts-area")).toHaveLength(1);
+    expect(rainCard.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(0);
+
+    // Tooltip com o `sum` do bucket (rainSeriesFixture: 0.4), não o `avg` (0.1).
+    const tooltip = await hoverFirstPoint(rainCard);
+    expect(tooltip).toHaveTextContent("13:00");
+    expect(tooltip).toHaveTextContent("Chuva0.4mm");
   });
 
   it("período sem dados (buckets: []) mostra o EmptyState de F5 dentro de cada ChartCard vazio", async () => {
@@ -395,7 +454,7 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       expect(callCount).toBe(5);
     });
 
-    it("combo Temperatura × Umidade: 2 polylines, uma por métrica, cor por série", async () => {
+    it("combo Temperatura × Umidade: 2 áreas, uma por métrica, cor por série", async () => {
       server.use(
         http.get("/api/v1/readings/series", ({ request }) => {
           const metric = new URL(request.url).searchParams.get("metric");
@@ -406,9 +465,11 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       render(<ChartsSection />, { wrapper: createWrapper() });
       await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
-      const card = screen.getByText("Temperatura × Umidade").closest('[data-testid="chartcard"]')!;
-      const svg = card.querySelector('[data-testid="chart-svg"]')!;
-      expect(svg.querySelectorAll("polyline")).toHaveLength(2);
+      const card = chartCardByTitle("Temperatura × Umidade");
+      expect(card.querySelectorAll(".recharts-area")).toHaveLength(2);
+      const css = card.querySelector("style")!.textContent!;
+      expect(css).toContain("--color-s0: var(--sensor-temperature)");
+      expect(css).toContain("--color-s1: var(--sensor-humidity)");
     });
 
     it("combo Índice UV × Chuva usa a MÉDIA da chuva (avg), não a soma acumulada do card standalone — o card 'Chuva' original não muda de dado, só de traço (linha desde 2026-08-16)", async () => {
@@ -425,23 +486,21 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       // Card standalone "Chuva": 1 linha só (não é combo), com os valores de
       // `sum` (0.4, 0.1) — cobertura de VALOR fica no teste puro de
       // `bucketsToLineSeries(..., "sum")` acima; aqui só confere o traço.
-      const rainCard = screen
-        .getByRole("heading", { name: "Chuva", level: 3 })
-        .closest('[data-testid="chartcard"]')!;
-      const rainSvg = rainCard.querySelector('[data-testid="chart-svg"]')!;
-      expect(rainSvg.querySelectorAll("polyline")).toHaveLength(1);
-      expect(rainSvg.querySelectorAll("rect")).toHaveLength(0);
+      const rainCard = chartCardByTitle("Chuva");
+      expect(rainCard.querySelectorAll(".recharts-area")).toHaveLength(1);
+      expect(rainCard.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(0);
 
-      // Combo "uv-rain": 2 linhas (Índice UV + Chuva com avg, não sum).
-      const comboCard = screen
-        .getByText("Índice UV × Chuva — chuva média (mm)")
-        .closest('[data-testid="chartcard"]')!;
-      const comboSvg = comboCard.querySelector('[data-testid="chart-svg"]')!;
-      expect(comboSvg.querySelectorAll("polyline")).toHaveLength(2);
-      expect(comboSvg.querySelectorAll("rect")).toHaveLength(0);
+      // Combo "uv-rain": 2 linhas (Índice UV + Chuva com avg, não sum) — o
+      // tooltip do 1º ponto mostra a média (0.1mm), não a soma (0.4mm).
+      const comboCard = chartCardByTitle("Índice UV × Chuva — chuva média (mm)");
+      expect(comboCard.querySelectorAll(".recharts-area")).toHaveLength(2);
+      expect(comboCard.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(0);
+
+      const tooltip = await hoverFirstPoint(comboCard);
+      expect(tooltip).toHaveTextContent("Chuva (média)0.1mm");
     });
 
-    it("combo com unidades diferentes (°C × %) não mostra eixo Y lateral — tooltip por ponto continua com a unidade certa de cada série", async () => {
+    it("combo com unidades diferentes (°C × hPa) ganha um eixo Y por série, cada um com sua unidade, e o tooltip usa a unidade de cada série", async () => {
       server.use(
         http.get("/api/v1/readings/series", ({ request }) => {
           const metric = new URL(request.url).searchParams.get("metric");
@@ -452,14 +511,17 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       render(<ChartsSection />, { wrapper: createWrapper() });
       await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
 
-      const card = screen
-        .getByText("Temperatura × Pressão")
-        .closest<HTMLElement>('[data-testid="chartcard"]')!;
-      expect(within(card).queryByTestId("chart-axis")).not.toBeInTheDocument();
+      const card = chartCardByTitle("Temperatura × Pressão");
+      const axes = yAxisTicks(card);
+      expect(axes).toHaveLength(2);
+      axes[0]!.forEach((tick) => expect(tick).toMatch(/°C$/));
+      axes[1]!.forEach((tick) => expect(tick).toMatch(/hPa$/));
 
-      const hitTargets = within(card).getAllByTestId("chart-point-hit");
-      fireEvent.mouseEnter(hitTargets[0]!);
-      expect(within(card).getByTestId("chart-tooltip")).toHaveTextContent("°C");
+      // seriesFixture (avg 24.1 no 1º bucket) responde pelas duas métricas
+      // aqui — o que importa é a unidade de cada série.
+      const tooltip = await hoverFirstPoint(card);
+      expect(tooltip).toHaveTextContent("Temperatura24.1°C");
+      expect(tooltip).toHaveTextContent("Pressão24.1hPa");
     });
   });
 });

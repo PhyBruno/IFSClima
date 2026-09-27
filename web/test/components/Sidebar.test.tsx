@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { Sidebar } from "../../src/components/Sidebar";
+import { SidebarProvider } from "../../src/components/ui/sidebar";
+import { Sidebar, type DashboardRoute } from "../../src/components/Sidebar";
+
+// O `Sidebar` do shadcn/ui exige um `SidebarProvider` ancestral (em produção
+// quem monta é o `AppShell`).
+function renderSidebar(active: DashboardRoute) {
+  return render(
+    <SidebarProvider>
+      <Sidebar active={active} />
+    </SidebarProvider>,
+  );
+}
 
 describe("Sidebar", () => {
   it("marca o item Dashboard como página atual quando active='dashboard'", () => {
-    render(<Sidebar active="dashboard" />);
+    renderSidebar("dashboard");
 
     const dashboardLink = screen.getByRole("link", { name: /dashboard/i });
     expect(dashboardLink).toHaveAttribute("aria-current", "page");
@@ -12,7 +23,7 @@ describe("Sidebar", () => {
   });
 
   it("'Histórico' (F8) é um link real para /historico, não marcado como página atual quando active='dashboard'", () => {
-    render(<Sidebar active="dashboard" />);
+    renderSidebar("dashboard");
 
     const historicoLink = screen.getByRole("link", { name: /histórico/i });
     expect(historicoLink).toHaveAttribute("href", "/historico");
@@ -20,13 +31,13 @@ describe("Sidebar", () => {
   });
 
   it("inclui o ThemeToggle (F5) reaproveitado, não recriado", () => {
-    render(<Sidebar active="dashboard" />);
+    renderSidebar("dashboard");
 
     expect(screen.getByRole("switch", { name: /modo escuro/i })).toBeInTheDocument();
   });
 
   it("com active='historico', Dashboard deixa de ser a página atual e Histórico passa a ser", () => {
-    render(<Sidebar active="historico" />);
+    renderSidebar("historico");
 
     expect(screen.getByRole("link", { name: /dashboard/i })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: /histórico/i })).toHaveAttribute(
@@ -36,7 +47,7 @@ describe("Sidebar", () => {
   });
 
   it("mostra a logo institucional (dark e light) em vez do ícone genérico + 'IFSClima'", () => {
-    render(<Sidebar active="dashboard" />);
+    renderSidebar("dashboard");
 
     const logos = screen.getAllByRole("img", { name: /jaraguá centro/i });
     expect(logos).toHaveLength(2);
@@ -46,10 +57,12 @@ describe("Sidebar", () => {
   });
 
   it("visível só a partir do breakpoint md (hidden no mobile)", () => {
-    render(<Sidebar active="dashboard" />);
+    renderSidebar("dashboard");
 
-    expect(
-      screen.getByRole("navigation", { name: /navegação principal/i }).closest("aside"),
-    ).toHaveClass("hidden", "md:flex");
+    // Raiz do `Sidebar` do shadcn no desktop: `hidden md:block`.
+    const root = screen
+      .getByRole("navigation", { name: /navegação principal/i })
+      .closest('[data-slot="sidebar"]');
+    expect(root).toHaveClass("hidden", "md:block");
   });
 });

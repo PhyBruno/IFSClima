@@ -1,36 +1,37 @@
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { getUvCriticality, type UvCriticality } from "../utils/uvIndex";
 
 /**
- * Badge de criticidade do Índice UV (pedido do usuário, 2026-08-16) — pill
- * colorida com o nível da escala da OMS (`utils/uvIndex.ts`), montada dentro
- * do `StatCard` do sensor UV em `SensorGrid` (ver prop `badge` de
- * `StatCard`). Componente isolado (não inline em `SensorGrid`) para poder
- * ser testado sozinho e reaproveitado por outra tela no futuro (ex. F8).
+ * Badge de criticidade do Índice UV (escala da OMS, `utils/uvIndex.ts`),
+ * exibida no card de UV do `SensorGrid`. Cores fixas nos dois temas — são
+ * cores de alerta reconhecidas (verde→roxo), não um acento que acompanha o tema.
  */
 const LEVEL_CLASSES: Record<UvCriticality, string> = {
-  low: "text-uv-low bg-uv-low-bg",
-  moderate: "text-uv-moderate bg-uv-moderate-bg",
-  high: "text-uv-high bg-uv-high-bg",
-  "very-high": "text-uv-very-high bg-uv-very-high-bg",
-  extreme: "text-uv-extreme bg-uv-extreme-bg",
+  low: "bg-uv-low/15 text-uv-low",
+  moderate: "bg-uv-moderate/15 text-uv-moderate",
+  high: "bg-uv-high/15 text-uv-high",
+  "very-high": "bg-uv-very-high/15 text-uv-very-high",
+  extreme: "bg-uv-extreme/15 text-uv-extreme",
 };
 
 export interface UvBadgeProps {
-  /** Índice UV bruto da leitura — o componente calcula o nível, não recebe um `level` já pronto. */
+  /** Índice UV bruto da leitura — o componente calcula o nível. */
   value: number;
   className?: string;
 }
 
-export function UvBadge({ value, className = "" }: UvBadgeProps) {
+export function UvBadge({ value, className }: UvBadgeProps) {
   const { level, label } = getUvCriticality(value);
 
   return (
-    <span
+    <Badge
       data-testid="uv-badge"
-      className={`rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold leading-none ${LEVEL_CLASSES[level]} ${className}`.trim()}
+      data-level={level}
+      className={cn("h-4.5 px-1.5 text-[10px] font-semibold", LEVEL_CLASSES[level], className)}
     >
       {label}
-    </span>
+    </Badge>
   );
 }
 

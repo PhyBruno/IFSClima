@@ -1,26 +1,22 @@
-import { Card } from "./Card";
+import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 export type StatusPillVariant = "card" | "inline";
 
 /**
- * Indicador de status "estação online/offline" — docs/design-extraction.md
- * §5.4 documenta duas variantes visuais:
- * - "card": sidebar desktop — usa `Card` por baixo (surface.card, radius
- *   12px, padding 10px) com dot + texto "Online" + linha secundária opcional
- *   "Última leitura: HH:MM".
- * - "inline": header mobile — sem card, só dot + texto "Estação online" +
- *   horário à direita, mais compacto.
+ * Indicador "estação online/offline" em duas variantes:
+ * - `card`: cartão compacto (usado na notificação flutuante de offline do
+ *   `DashboardPage`) com dot + "Online"/"Offline" + "Última leitura: HH:MM".
+ * - `inline`: sem cartão, dot + "Estação online/offline" + horário à direita
+ *   (usado dentro do `ConnectionBanner`).
+ *
+ * O dot é decorativo (`aria-hidden`) — o texto sempre comunica o estado, sem
+ * depender só de cor.
  */
 export interface StatusPillProps {
   variant?: StatusPillVariant;
   online: boolean;
-  /**
-   * Horário da última leitura. Aceita uma string já formatada (ex. "14:32")
-   * ou um `Date`, formatado aqui como `HH:MM` local. A extração (§5.4) não
-   * define uma regra de tempo relativo ("há X min") para este componente —
-   * isso é lógica de apresentação que cabe ao chamador (F6); este componente
-   * só exibe o texto/horário que recebe.
-   */
+  /** Horário da última leitura: string já formatada ("14:32") ou `Date` (formatado como HH:MM local). */
   lastReadingAt?: string | Date;
   className?: string;
 }
@@ -35,50 +31,46 @@ export function StatusPill({
   variant = "card",
   online,
   lastReadingAt,
-  className = "",
+  className,
 }: StatusPillProps) {
   const time = lastReadingAt instanceof Date ? formatTime(lastReadingAt) : lastReadingAt;
+  const toneClass = online ? "text-success" : "text-destructive";
 
-  // Estado "offline": a extração (§5.4) não modela uma variante offline
-  // explícita para ESTE componente (o card dashed do StatCard é outra
-  // coisa, ver §5.1). Decisão de API: reaproveitar `status.negative` (cor de
-  // alerta já existente no design, usada no delta de baixa) para o dot e o
-  // texto principal quando offline, mantendo `text.muted` só na linha
-  // secundária de horário — igual ao estado online. Nenhum hex novo.
-  const indicatorColorClass = online ? "text-status-online-text" : "text-status-negative";
-  const dotColorClass = online ? "bg-status-online-dot" : "bg-status-negative";
-
-  // O dot nunca é a única forma de comunicar o estado: o texto "Online"/
-  // "Offline" (ou "Estação online"/"Estação offline") está sempre presente,
-  // não depende de cor para quem usa leitor de tela (dot é aria-hidden).
   const dot = (
-    <span
-      aria-hidden="true"
-      className={`h-1.5 w-1.5 shrink-0 rounded-full ${dotColorClass}`}
-    />
+    <span className="relative flex size-2 shrink-0" aria-hidden="true">
+      {online ? null : (
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-destructive opacity-60 motion-reduce:animate-none" />
+      )}
+      <span
+        className={cn(
+          "relative inline-flex size-2 rounded-full",
+          online ? "bg-success" : "bg-destructive",
+        )}
+      />
+    </span>
   );
 
   if (variant === "inline") {
     return (
-      <div className={`flex items-center gap-2 ${className}`.trim()}>
+      <div className={cn("flex items-center gap-2", className)}>
         {dot}
-        <span className={`text-xs font-medium ${indicatorColorClass}`}>
+        <span className={cn("text-xs font-medium", toneClass)}>
           {online ? "Estação online" : "Estação offline"}
         </span>
-        {time ? <span className="ml-auto text-xs text-text-muted">{time}</span> : null}
+        {time ? <span className="ml-auto text-xs text-muted-foreground">{time}</span> : null}
       </div>
     );
   }
 
   return (
-    <Card radius="rounded-xl" padding="none" className={`p-2.5 ${className}`.trim()}>
+    <Card size="sm" className={cn("gap-1 px-3 shadow-lg", className)}>
       <div className="flex items-center gap-2">
         {dot}
-        <span className={`text-xs font-medium ${indicatorColorClass}`}>
+        <span className={cn("text-xs font-medium", toneClass)}>
           {online ? "Online" : "Offline"}
         </span>
       </div>
-      {time ? <p className="mt-1 text-xs text-text-muted">Última leitura: {time}</p> : null}
+      {time ? <p className="text-xs text-muted-foreground">Última leitura: {time}</p> : null}
     </Card>
   );
 }

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useQueries, type UseQueryResult } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ChartCard, type ChartSeries } from "./ChartCard";
 import { PeriodSelector, type PeriodOption } from "./PeriodSelector";
-import { Card } from "./Card";
-import { Skeleton } from "./Skeleton";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { seriesQueryOptions } from "../hooks/useSeries";
 import { formatTime, formatDayMonth, formatDayMonthUTC } from "../utils/formatTime";
@@ -25,27 +25,13 @@ import type { BucketUnit, Metric, Range, SeriesBucket, SeriesResponse } from "..
  * um filtro, não uma nova "página" — não queremos empilhar uma entrada de
  * histórico por clique no seletor.
  *
- * **Recharts não é usado aqui.** A tarefa pede para conferir se `ChartCard`
- * (F5) já embrulha Recharts internamente antes de adicionar a lib — não
- * embrulha (é SVG customizado, `ChartCard.tsx`, sem import de `recharts`) e
- * já implementa sozinho tudo que os critérios de aceite pedem (linha
- * multi-série, barras, estado vazio). Adicionar `recharts` como dependência
- * sem nenhum componente consumindo-o seria peso morto — a instrução do
- * prompt ("se ele já usa Recharts, você só precisa consumir a API") aponta
- * justamente para tratar `ChartCard` como a fronteira de abstração, que é o
- * que este arquivo faz.
+ * **`ChartCard` é a fronteira com o Recharts.** Este arquivo só monta os
+ * dados (séries, rótulos, unidades) — o desenho em si (shadcn `Chart` +
+ * Recharts, eixos por unidade, tooltip) vive inteiro em `ChartCard.tsx`.
  *
- * **Sem banda min/max sobreposta.** `ChartCard` normaliza cada série
- * independentemente pelo seu PRÓPRIO min/max (ver docstring de
- * `ChartCard.tsx`) — não há uma escala compartilhada entre séries. Desenhar
- * `min`/`max` como séries adicionais nesse modelo não produziria uma banda
- * visualmente correta ao redor de `avg` (cada uma ocuparia a altura toda do
- * card, normalizada ao seu próprio intervalo, distorcendo a leitura em vez
- * de ilustrar variação) — por isso "quando fizer sentido" (spec.md AC2) aqui
- * significa: não faz sentido dado o modelo de normalização atual do
- * `ChartCard`, então só `avg` é desenhado. `min`/`max` continuam disponíveis
- * no payload para uma extensão futura que dê ao `ChartCard` um modo de banda
- * de verdade (fora do escopo desta tarefa — não é alteração de F5).
+ * **Sem banda min/max sobreposta.** Só `avg` (ou `sum`, na chuva) é
+ * desenhado; `min`/`max` continuam no payload para uma extensão futura que
+ * dê ao `ChartCard` um modo de banda (fora do escopo atual).
  *
  * **`useQueries`, não `useSeries` por gráfico (T6.4).** T6.3 chamava
  * `useSeries` dentro de um componente `MetricChart` por métrica — 5
@@ -290,7 +276,7 @@ export function bucketsToPointLabels(
 interface MetricChartConfig {
   metric: Metric;
   title: string;
-  /** Cor CSS literal (`var(--color-sensor-*)`, ver theme.css) — acento por sensor (docs/design-extraction.md §1.4). */
+  /** Cor CSS literal (`var(--sensor-*)`, ver `src/index.css`) — acento por sensor (docs/design-extraction.md §1.4). */
   color: string;
   variant: "line" | "bar";
   /** Unidade exibida no eixo Y e no tooltip do `ChartCard` (feedback do usuário, 2026-07-24) — mesmos valores usados em `SensorGrid.SENSORS`. */
@@ -315,28 +301,28 @@ const METRIC_CHARTS: MetricChartConfig[] = [
   {
     metric: "temperature_c",
     title: "Temperatura",
-    color: "var(--color-sensor-temperature)",
+    color: "var(--sensor-temperature)",
     variant: "line",
     unit: "°C",
   },
   {
     metric: "humidity_pct",
     title: "Umidade",
-    color: "var(--color-sensor-humidity)",
+    color: "var(--sensor-humidity)",
     variant: "line",
     unit: "%",
   },
   {
     metric: "pressure_hpa",
     title: "Pressão",
-    color: "var(--color-sensor-pressure)",
+    color: "var(--sensor-pressure)",
     variant: "line",
     unit: "hPa",
   },
   {
     metric: "rain_mm",
     title: "Chuva",
-    color: "var(--color-sensor-rain)",
+    color: "var(--sensor-rain)",
     variant: "line",
     unit: "mm",
     aggregation: "sum",
@@ -344,7 +330,7 @@ const METRIC_CHARTS: MetricChartConfig[] = [
   {
     metric: "uv_index",
     title: "Índice UV",
-    color: "var(--color-sensor-uv)",
+    color: "var(--sensor-uv)",
     variant: "line",
     unit: "",
   },
@@ -403,13 +389,13 @@ const COMBO_CHARTS: ComboChartConfig[] = [
       {
         metric: "temperature_c",
         label: "Temperatura",
-        color: "var(--color-sensor-temperature)",
+        color: "var(--sensor-temperature)",
         unit: "°C",
       },
       {
         metric: "humidity_pct",
         label: "Umidade",
-        color: "var(--color-sensor-humidity)",
+        color: "var(--sensor-humidity)",
         unit: "%",
       },
     ],
@@ -422,8 +408,8 @@ const COMBO_CHARTS: ComboChartConfig[] = [
     // confusão entre as duas semânticas de chuva coexistindo no dashboard.
     title: "Índice UV × Chuva — chuva média (mm)",
     series: [
-      { metric: "uv_index", label: "Índice UV", color: "var(--color-sensor-uv)", unit: "" },
-      { metric: "rain_mm", label: "Chuva (média)", color: "var(--color-sensor-rain)", unit: "mm" },
+      { metric: "uv_index", label: "Índice UV", color: "var(--sensor-uv)", unit: "" },
+      { metric: "rain_mm", label: "Chuva (média)", color: "var(--sensor-rain)", unit: "mm" },
     ],
   },
   {
@@ -433,13 +419,13 @@ const COMBO_CHARTS: ComboChartConfig[] = [
       {
         metric: "temperature_c",
         label: "Temperatura",
-        color: "var(--color-sensor-temperature)",
+        color: "var(--sensor-temperature)",
         unit: "°C",
       },
       {
         metric: "pressure_hpa",
         label: "Pressão",
-        color: "var(--color-sensor-pressure)",
+        color: "var(--sensor-pressure)",
         unit: "hPa",
       },
     ],
@@ -485,19 +471,21 @@ function comboPointLabels(
  * Placeholder de carregamento inicial de UM `ChartCard` (T6.4 — spec.md edge
  * case "loading inicial → skeletons, não layout shift"). Mesma árvore de
  * classes do `ChartCard` real (`Card`, padding, título) — só o corpo
- * (`<svg>` de `h-20`) vira um `Skeleton` do mesmo tamanho, pra não pular o
+ * (`ChartContainer` de `h-36`) vira um `Skeleton` do mesmo tamanho, pra não pular o
  * layout quando os dados chegam. O título é mostrado desde já (não depende
  * de dado nenhum), igual ao cabeçalho do `ChartCard` real.
  */
 function ChartCardSkeleton({ title }: { title: string }) {
   return (
-    <Card
-      padding="none"
-      data-testid="chartcard-skeleton"
-      className="flex flex-col gap-3 p-[12px_14px] md:p-5"
-    >
-      <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-      <Skeleton className="h-20 w-full" />
+    <Card data-testid="chartcard-skeleton" size="sm" className="md:[--card-spacing:--spacing(5)]">
+      <CardHeader>
+        <CardTitle className="text-sm font-semibold">
+          <h3>{title}</h3>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-36 w-full" />
+      </CardContent>
     </Card>
   );
 }
@@ -585,7 +573,7 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
           `DemoGallery.tsx`) pra separar visualmente as duas categorias de
           card sem misturar 5+3 no mesmo fluxo, o que confundiria "métrica
           única" com "comparativo" pro usuário. */}
-      <h2 className="text-base font-semibold text-text-primary">Comparativos</h2>
+      <h2 className="font-heading text-base font-semibold">Comparativos</h2>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {COMBO_CHARTS.map((config) => {
           if (comboIsPending(config, resultByMetric)) {

@@ -20,17 +20,17 @@ describe("PeriodSelector", () => {
       expect(screen.getByRole("button", { name: "Personalizado ▾" })).toBeInTheDocument();
     });
 
-    it("marca a opção ativa com aria-pressed=true e cor de marca; as demais false", () => {
+    it("marca a opção ativa com aria-pressed=true e variante de destaque (default); as demais false (outline)", () => {
       render(<PeriodSelector options={OPTIONS} value="7d" onChange={vi.fn()} />);
 
       const active = screen.getByRole("button", { name: "7 dias" });
       const inactive = screen.getByRole("button", { name: "Hoje" });
 
       expect(active).toHaveAttribute("aria-pressed", "true");
-      expect(active).toHaveClass("bg-brand-primary", "text-white");
+      expect(active).toHaveAttribute("data-variant", "default");
 
       expect(inactive).toHaveAttribute("aria-pressed", "false");
-      expect(inactive).not.toHaveClass("bg-brand-primary");
+      expect(inactive).toHaveAttribute("data-variant", "outline");
     });
 
     it("clicar numa opção chama onChange com o value certo", () => {
@@ -44,12 +44,17 @@ describe("PeriodSelector", () => {
     });
 
     it("mudar o value externo (controlado) muda qual botão está ativo", () => {
-      const { rerender } = render(<PeriodSelector options={OPTIONS} value="today" onChange={vi.fn()} />);
+      const { rerender } = render(
+        <PeriodSelector options={OPTIONS} value="today" onChange={vi.fn()} />,
+      );
       expect(screen.getByRole("button", { name: "Hoje" })).toHaveAttribute("aria-pressed", "true");
 
       rerender(<PeriodSelector options={OPTIONS} value="30d" onChange={vi.fn()} />);
       expect(screen.getByRole("button", { name: "Hoje" })).toHaveAttribute("aria-pressed", "false");
-      expect(screen.getByRole("button", { name: "30 dias" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "30 dias" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
     });
 
     it("radius é responsivo (pill no mobile, retangular no desktop) na mesma árvore de botões", () => {
@@ -102,7 +107,9 @@ describe("PeriodSelector", () => {
     it("sem onClick, não quebra ao clicar", () => {
       render(<PeriodSelector mode="dropdown" label="Últimas 24h" />);
 
-      expect(() => fireEvent.click(screen.getByRole("button", { name: /últimas 24h/i }))).not.toThrow();
+      expect(() =>
+        fireEvent.click(screen.getByRole("button", { name: /últimas 24h/i })),
+      ).not.toThrow();
     });
 
     it("renderiza um único botão, não um grupo (estruturalmente diferente do modo grupo)", () => {

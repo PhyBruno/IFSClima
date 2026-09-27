@@ -40,7 +40,7 @@ vi.mock("jspdf", () => ({
 }));
 
 const html2canvasMock = vi.fn();
-vi.mock("html2canvas", () => ({
+vi.mock("html2canvas-pro", () => ({
   default: (...args: unknown[]) => html2canvasMock(...args),
 }));
 
@@ -79,7 +79,7 @@ describe("exportDashboardToPdf", () => {
 
     expect(html2canvasMock).toHaveBeenCalledWith(
       element,
-      expect.objectContaining({ backgroundColor: "#0d1117", scale: 2 }),
+      expect.objectContaining({ backgroundColor: expect.any(String), scale: 2 }),
     );
     const { ignoreElements } = html2canvasMock.mock.calls[0]![1] as {
       ignoreElements: (node: Element) => boolean;

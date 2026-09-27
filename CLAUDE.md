@@ -26,7 +26,9 @@ dashboard de tema escuro. Ver `.specs/project/PROJECT.md` para a visão completa
 ## Stack (resumo)
 
 - **api/**: Fastify + TypeScript + Drizzle ORM + PostgreSQL 16. Testes: Vitest + light-my-request + Testcontainers.
-- **web/**: React 18 + Vite + TypeScript + Tailwind CSS.
+- **web/**: React 18 + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui (Radix, estilo `radix-nova`, gráficos Recharts).
+  Componentes shadcn em `web/src/components/ui/` (gerados pela CLI — não editar à mão; adicionar com
+  `npx shadcn@latest add <nome>` dentro de `web/`). MCP do shadcn configurado em `.mcp.json`.
 - **Infra**: Docker Compose (api + web + db). Roda com `docker compose up`.
 - **Qualidade**: TDD com cobertura ≥80% (atualmente 100% na api).
 

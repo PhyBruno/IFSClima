@@ -16,7 +16,7 @@
 **Core:**
 
 - Backend: Fastify (Node.js 20 LTS) + TypeScript
-- Frontend: React 18 + Vite + TypeScript + Tailwind CSS
+- Frontend: React 18 + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui (Radix, radix-nova) + Recharts
 - Database: PostgreSQL 16
 - ORM/migrations: Drizzle ORM
 
