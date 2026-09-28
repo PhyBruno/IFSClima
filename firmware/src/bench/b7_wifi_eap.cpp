@@ -1,9 +1,11 @@
-// b7_wifi_eap — descobre qual combinação EAP a rede do IFSC aceita.
+// b7_wifi_eap — descobre qual combinação EAP a rede do IFSC aceita e, ao
+// conectar, prova que há acesso real à internet (DNS + HTTP + NTP).
 // Usa SSID/usuário/senha/identidade/CA do secrets.h e tenta, em sequência:
 // PEAP/MSCHAPv2, TTLS/PAP, TTLS/CHAP, TTLS/MSCHAPv2, TTLS/MSCHAP.
 // Antes, varre as redes para confirmar que o SSID aparece em 2,4 GHz.
 // Copie a combinação que conectar para WIFI_METODO/WIFI_FASE2 no secrets.h.
 #include <Arduino.h>
+#include <HTTPClient.h>
 #include <WiFi.h>
 
 #include "config.h"
@@ -49,6 +51,41 @@ static bool varrerEProcurarSsid() {
   return achou;
 }
 
+// Prova acesso real à internet (não só IP na LAN), já conectado:
+//  1. Resolve um nome (DNS) e mede o RTT do endereco.
+//  2. HTTP GET num connectivity-check: 204 = internet liberada; 3xx/redirect
+//     ou corpo HTML = portal captivo interceptando; erro = sem saida.
+//  3. Sincroniza o relogio via NTP (trafego UDP de saida).
+static void testarInternet() {
+  Serial.println("  -- Teste de acesso a internet --");
+
+  IPAddress ip;
+  const bool dnsOk = WiFi.hostByName("clients3.google.com", ip);
+  Serial.printf("  DNS clients3.google.com -> %s\n", dnsOk ? ip.toString().c_str() : "FALHOU");
+
+  HTTPClient http;
+  http.setConnectTimeout(8000);
+  http.begin("http://clients3.google.com/generate_204");
+  const int codigo = http.GET();
+  if (codigo == 204) {
+    Serial.println("  HTTP generate_204 -> 204: INTERNET OK (sem portal captivo)");
+  } else if (codigo > 0) {
+    Serial.printf("  HTTP generate_204 -> %d: ha saida, mas provavel PORTAL CAPTIVO/proxy\n", codigo);
+  } else {
+    Serial.printf("  HTTP generate_204 -> erro %d (%s): SEM saida para a internet\n", codigo,
+                  HTTPClient::errorToString(codigo).c_str());
+  }
+  http.end();
+
+  const bool ntpOk = hal::ntpSincronizar(NTP_TIMEOUT_S);
+  if (ntpOk) {
+    const time_t agora = time(nullptr);
+    Serial.printf("  NTP -> OK, epoch %ld (%s)", static_cast<long>(agora), asctime(gmtime(&agora)));
+  } else {
+    Serial.println("  NTP -> FALHOU (UDP 123 bloqueado ou sem saida)");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1500);
@@ -77,6 +114,7 @@ void setup() {
                   c.metodo == hal::MetodoWifi::TTLS ? hal::nomeFase2(c.fase2) : "MSCHAPv2");
     const bool ok = hal::wifiConectar(cfg);
     Serial.printf(">> %s\n", ok ? "CONECTOU" : "falhou");
+    if (ok) testarInternet();  // já conectado: confirma saída real para a internet
     hal::wifiDesligar();
     delay(2000);
   }
