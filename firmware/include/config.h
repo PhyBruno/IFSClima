@@ -59,12 +59,14 @@ constexpr int RAIN_GAUGE_PIN = 27;
 static_assert(RAIN_GAUGE_PIN < 32, "a ISR le GPIO_IN_REG: o pino precisa ser < 32");
 
 // A RECONFERIR NO ESP32 (valores medidos em bancada no Pico 2 W):
-//  - MM_PER_TIP provisório; calibrar com bench/b4_calibrar_chuva:
-//      MM_PER_TIP = (volume_mL / n_basculas) / (pi * (diametro_cm/2)^2) * 10
+//  - MM_PER_TIP calibrado em bancada (b4) com o funil real desta estacao:
+//      600 mL / 30 basculas = 20 mL/bascula; boca de captacao 13 cm de diametro
+//      (area = pi*(6,5)^2 = 132,73 cm2); 20/132,73*10 = 1,507 mm/bascula.
+//      Formula: MM_PER_TIP = (volume_mL / n_basculas) / (pi*(diametro_cm/2)^2) * 10
 //  - no KY-025 o D0 fica em 0 em repouso e vai a 1 com o ímã: pulso em ALTO,
 //    evento na borda de SUBIDA (RAIN_ON_FALLING = false). Conferir com b3.
 //  - menor intervalo entre bordas medido: 353 ms; 150 ms de debounce é folga.
-constexpr double MM_PER_TIP = 0.2;
+constexpr double MM_PER_TIP = 1.507;
 constexpr uint32_t RAIN_DEBOUNCE_MS = 150;
 constexpr bool RAIN_PULL_UP = true;       // saída do LM393 é coletor aberto
 constexpr bool RAIN_ON_FALLING = false;
