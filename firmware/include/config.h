@@ -16,7 +16,11 @@ constexpr uint32_t LEITURAS_POR_ENVIO = CFG_LEITURAS_POR_ENVIO;        // 4 x 15
 
 // true  = lightsleep (campo/bateria; chuva acorda a placa por nível no pino)
 // false = espera acordada em fatias de 1 s (debug via USB; ainda conta chuva)
-constexpr bool MODO_ECONOMIA = true;
+// Sobrescrito por build flag no env:esp32_debug (CFG_MODO_ECONOMIA=0).
+#ifndef CFG_MODO_ECONOMIA
+#define CFG_MODO_ECONOMIA 1
+#endif
+constexpr bool MODO_ECONOMIA = CFG_MODO_ECONOMIA != 0;
 
 // Leituras por POST. Envio em lotes evita montar um payload gigante na RAM
 // quando a estação ficou muito tempo offline.
