@@ -154,6 +154,10 @@ Dois scripts PowerShell cobrem o ciclo de build de imagens `runtime` (api/web), 
 
 Ambos exigem execução via `powershell -ExecutionPolicy Bypass -File .scripts/<script>.ps1 [flags]` (ou o atalho `npm run docker:publish` para o primeiro).
 
+### Gravar o firmware no ESP32 (`.scripts/firmware-gravar.ps1`)
+
+Build + gravação + monitor serial do firmware (`firmware/`, PlatformIO) num comando só. Dê duplo clique em `firmware/gravar.cmd` (menu interativo: `esp32`, `esp32_rapido`, `bench_b7_wifi_eap`, `bench_b8_envio`…) ou rode `powershell -ExecutionPolicy Bypass -File .scripts/firmware-gravar.ps1 [-Env <env>] [-Porta COMx] [-Editar] [-Limpar] [-SemMonitor]`. O script cria `firmware/include/secrets.h` se faltar (e `-Editar` abre no Bloco de Notas antes do build), mostra um resumo com a senha mascarada, avisa se ainda há valores de exemplo e detecta a porta COM do ESP32 sozinho. Usa `PLATFORMIO_CORE_DIR=C:\pio` por padrão: no Windows, o pacote pioarduino tem caminhos que estouram o limite de 260 caracteres dentro de `%USERPROFILE%\.platformio`. Pré-requisitos: Python + `pip install platformio` e o driver da ponte USB-serial da placa (CP210x no NodeMCU).
+
 ## Scripts agregados (raiz)
 
 ```bash
