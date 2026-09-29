@@ -122,7 +122,7 @@ export function HistoryPage() {
   const showTable = !showError && (data !== undefined || !isPending);
 
   return (
-    <AppShell active="historico" section="Histórico">
+    <AppShell active="historico">
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-1">
           <h1 className="font-heading text-xl font-semibold tracking-tight md:text-2xl">

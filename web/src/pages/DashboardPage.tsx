@@ -138,7 +138,7 @@ export function DashboardPage() {
   }
 
   return (
-    <AppShell active="dashboard" section="Dashboard">
+    <AppShell active="dashboard">
       {showOfflineIndicator && (
         <div role="status" aria-live="polite" className="fixed top-4 right-4 z-50">
           <StatusPill variant="card" online={false} lastReadingAt={lastReadingLabel} />

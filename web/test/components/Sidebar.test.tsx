@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { SidebarProvider } from "../../src/components/ui/sidebar";
 import { Sidebar, type DashboardRoute } from "../../src/components/Sidebar";
 
@@ -54,6 +54,29 @@ describe("Sidebar", () => {
     expect(logos[0]).toHaveAttribute("src", "/jaragua-centro-logo-dark-theme.png");
     expect(logos[1]).toHaveAttribute("src", "/jaragua-centro-logo-light-theme.png");
     expect(screen.queryByText("IFSClima")).not.toBeInTheDocument();
+  });
+
+  it("tem o próprio gatilho de recolher, que recolhe para ícones e continua acessível recolhida", () => {
+    renderSidebar("dashboard");
+
+    const root = screen
+      .getByRole("navigation", { name: /navegação principal/i })
+      .closest('[data-slot="sidebar"]');
+    const trigger = screen.getByRole("button", { name: /recolher barra lateral/i });
+    expect(root).toContainElement(trigger);
+    expect(root).toHaveAttribute("data-state", "expanded");
+
+    fireEvent.click(trigger);
+
+    expect(root).toHaveAttribute("data-state", "collapsed");
+    // `icon` (e não `offcanvas`): vira trilho de ícones em vez de sumir, então
+    // o gatilho — que mora dentro dela — segue ali para expandir de novo.
+    expect(root).toHaveAttribute("data-collapsible", "icon");
+    expect(root).toContainElement(trigger);
+    expect(trigger).toHaveAccessibleName("Expandir barra lateral");
+
+    fireEvent.click(trigger);
+    expect(root).toHaveAttribute("data-state", "expanded");
   });
 
   it("visível só a partir do breakpoint md (hidden no mobile)", () => {

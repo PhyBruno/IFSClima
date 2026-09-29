@@ -135,8 +135,8 @@ describe("DashboardPage", () => {
 
     const notification = await screen.findByRole("status");
     expect(notification).toHaveClass("fixed", "right-4", "top-4");
-    // Não é filho de nenhum <header> (o fixo do AppShell, só com o título da
-    // seção, nem o da página, com o título e o botão "Exportar PDF").
+    // Não é filho de nenhum <header> (o da página, com o título e o botão
+    // "Exportar PDF").
     const headers = screen.getAllByRole("banner");
     expect(headers.length).toBeGreaterThan(0);
     for (const header of headers) {

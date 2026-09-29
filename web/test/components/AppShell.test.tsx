@@ -3,14 +3,14 @@ import { render, screen, within } from "@testing-library/react";
 import { AppShell } from "../../src/components/AppShell";
 
 /**
- * `AppShell` — layout comum das páginas: `Sidebar` (desktop) + header fixo com
- * o título da seção + conteúdo, e `BottomNav` (mobile). As duas navegações
+ * `AppShell` — layout comum das páginas: `Sidebar` (desktop, com o próprio
+ * gatilho de recolher) + conteúdo, e `BottomNav` (mobile). As duas navegações
  * ficam no DOM ao mesmo tempo (a visibilidade é por breakpoint via CSS).
  */
 describe("AppShell", () => {
   it("renderiza a Sidebar e a BottomNav, ambas com o item ativo marcado como página atual", () => {
     render(
-      <AppShell active="historico" section="Histórico">
+      <AppShell active="historico">
         <p>conteúdo</p>
       </AppShell>,
     );
@@ -32,7 +32,7 @@ describe("AppShell", () => {
 
   it("com active='dashboard', só o item Dashboard fica como página atual", () => {
     render(
-      <AppShell active="dashboard" section="Dashboard">
+      <AppShell active="dashboard">
         <p>conteúdo</p>
       </AppShell>,
     );
@@ -46,20 +46,25 @@ describe("AppShell", () => {
     }
   });
 
-  it("mostra o título da seção no header fixo", () => {
+  it("não tem header fixo: sem linha de título da seção, e o gatilho de recolher fica dentro da Sidebar", () => {
     render(
-      <AppShell active="historico" section="Histórico">
+      <AppShell active="historico">
         <p>conteúdo</p>
       </AppShell>,
     );
 
-    const header = screen.getByRole("banner");
-    expect(within(header).getByText("Histórico")).toBeInTheDocument();
+    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+
+    const trigger = screen.getByRole("button", { name: /recolher barra lateral/i });
+    expect(trigger.closest('[data-slot="sidebar"]')).not.toBeNull();
+    expect(
+      within(screen.getByRole("main")).queryByRole("button", { name: /recolher/i }),
+    ).toBeNull();
   });
 
   it("renderiza os children dentro da área principal", () => {
     render(
-      <AppShell active="dashboard" section="Dashboard">
+      <AppShell active="dashboard">
         <p>Conteúdo da página</p>
       </AppShell>,
     );
