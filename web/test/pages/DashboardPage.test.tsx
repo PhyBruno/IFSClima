@@ -7,16 +7,15 @@ import { server } from "../mocks/server";
 import { createQueryClient } from "../../src/providers/QueryProvider";
 import { DashboardPage } from "../../src/pages/DashboardPage";
 import { emptyLatestFixture, latestFixture } from "../fixtures/readings";
-import { exportDashboardToPdf } from "../../src/utils/exportDashboardPdf";
+import { exportDashboardToPdf } from "../../src/pdf/exportDashboardPdf";
 
 /**
- * `exportDashboardToPdf` (`utils/exportDashboardPdf.ts`) usa `html2canvas`
+ * `exportDashboardToPdf` (`pdf/exportDashboardPdf.ts`) usa `html2canvas-pro`
  * (precisa de um `<canvas>` de verdade, que o jsdom não implementa) — mockado
  * aqui pra testar só a integração do BOTÃO (chamada/loading/erro), não a
- * geração real do PDF (isso é responsabilidade de um teste próprio do
- * util, com `html2canvas`/`jsPDF` também mockados).
+ * geração real do PDF (isso é responsabilidade dos testes de `test/pdf/`).
  */
-vi.mock("../../src/utils/exportDashboardPdf", () => ({
+vi.mock("../../src/pdf/exportDashboardPdf", () => ({
   exportDashboardToPdf: vi.fn(),
 }));
 
@@ -221,23 +220,28 @@ describe("DashboardPage", () => {
   });
 
   describe("Exportar PDF (pedido do usuário, 2026-08-16)", () => {
-    it("clicar em 'Exportar PDF' chama exportDashboardToPdf com o container da página e o station_id da leitura atual", async () => {
+    it("clicar em 'Exportar PDF' chama exportDashboardToPdf com o QueryClient da página e o período ativo (?range=)", async () => {
       vi.mocked(exportDashboardToPdf).mockResolvedValue();
-      renderPage();
+      window.history.replaceState(null, "", "/?range=7d");
+      try {
+        renderPage();
 
-      await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
-      fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
+        await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
+        fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
 
-      await waitFor(() => expect(exportDashboardToPdf).toHaveBeenCalledTimes(1));
-      const call = vi.mocked(exportDashboardToPdf).mock.calls[0]![0];
-      expect(call.element).toBeInstanceOf(HTMLElement);
-      expect(call.stationLabel).toBe(latestFixture.station_id);
+        await waitFor(() => expect(exportDashboardToPdf).toHaveBeenCalledTimes(1));
+        const call = vi.mocked(exportDashboardToPdf).mock.calls[0]![0];
+        expect(call.range).toBe("7d");
+        expect(call.queryClient.getQueryData(["readings", "latest"])).toEqual(latestFixture);
+      } finally {
+        window.history.replaceState(null, "", "/");
+      }
     });
 
     it("botão mostra 'Gerando PDF…' e fica desabilitado enquanto a exportação está em voo", async () => {
       let resolveExport!: () => void;
       vi.mocked(exportDashboardToPdf).mockReturnValue(
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           resolveExport = resolve;
         }),
       );
@@ -264,17 +268,10 @@ describe("DashboardPage", () => {
       expect(await screen.findByRole("button", { name: "Exportar PDF" })).toBeEnabled();
     });
 
-    it("o botão de exportar carrega data-pdf-ignore, pra não aparecer no próprio PDF que ele gera", async () => {
-      renderPage();
-
-      const button = screen.getByRole("button", { name: "Exportar PDF" });
-      expect(button.closest("[data-pdf-ignore]")).toBeInTheDocument();
-    });
-
     it("clique duplo enquanto já está exportando não dispara uma segunda chamada (botão fica disabled, mas a guarda também protege)", async () => {
       let resolveExport!: () => void;
       vi.mocked(exportDashboardToPdf).mockReturnValue(
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           resolveExport = resolve;
         }),
       );

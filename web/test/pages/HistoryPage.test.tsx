@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { delay, http, HttpResponse } from "msw";
@@ -7,6 +7,14 @@ import { server } from "../mocks/server";
 import { createQueryClient } from "../../src/providers/QueryProvider";
 import { HistoryPage } from "../../src/pages/HistoryPage";
 import { emptyHistoryFixture, historyFixture, historyPage2Fixture } from "../fixtures/readings";
+import { exportHistoryToPdf } from "../../src/pdf/exportHistoryPdf";
+
+/** A geração real do PDF (`html2canvas-pro`, que precisa de `<canvas>`) é testada em `test/pdf/`; aqui só a integração do botão. */
+vi.mock("../../src/pdf/exportHistoryPdf", () => ({ exportHistoryToPdf: vi.fn() }));
+
+afterEach(() => {
+  vi.mocked(exportHistoryToPdf).mockReset();
+});
 
 /**
  * `HistoryPage` (F8 T8.6) — monta `Sidebar`/`BottomNav` (active="historico")
@@ -177,5 +185,43 @@ describe("HistoryPage", () => {
     });
     const newCsvHref = screen.getByRole("link", { name: /exportar csv/i }).getAttribute("href");
     expect(newCsvHref).not.toBe(oldCsvHref);
+  });
+
+  describe("Exportar PDF (pedido do usuário, 2026-09-29)", () => {
+    it("exporta o intervalo resolvido pelo servidor (o mesmo da tabela)", async () => {
+      vi.mocked(exportHistoryToPdf).mockResolvedValue();
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
+
+      await waitFor(() => expect(exportHistoryToPdf).toHaveBeenCalledTimes(1));
+      expect(exportHistoryToPdf).toHaveBeenCalledWith({
+        from: historyFixture.from,
+        to: historyFixture.to,
+      });
+    });
+
+    it("fica desabilitado enquanto não há uma resposta confirmada do intervalo", async () => {
+      server.use(
+        http.get("/api/v1/readings", async () => {
+          await delay("infinite");
+          return HttpResponse.json(historyFixture);
+        }),
+      );
+      renderPage();
+
+      expect(screen.getByRole("button", { name: "Exportar PDF" })).toBeDisabled();
+    });
+
+    it("falha na geração mostra a mensagem de erro sem quebrar a página", async () => {
+      vi.mocked(exportHistoryToPdf).mockRejectedValue(new Error("boom"));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+      fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(/não foi possível gerar o pdf/i);
+    });
   });
 });

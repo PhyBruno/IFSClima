@@ -2,11 +2,30 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import {
   DateRangePicker,
-  localDateStringToUtcDayBounds,
+  localDayBoundsToUtc,
+  resolveCustomRange,
 } from "../../src/components/DateRangePicker";
 
 const FIXED_NOW = new Date("2026-07-23T14:30:00.000Z");
 const fixedNow = () => FIXED_NOW;
+
+/**
+ * O `Calendar` do shadcn marca cada dia com `data-day` no formato do locale
+ * (`DD/MM/AAAA` em pt-BR) — seletor estável, independente do texto do
+ * `aria-label` gerado pelo react-day-picker. `showOutsideDays={false}` no
+ * componente garante um único botão por dia.
+ */
+function dayButton(day: string): HTMLButtonElement {
+  const button = document.querySelector<HTMLButtonElement>(`[data-day="${day}"]`);
+  if (!button) {
+    throw new Error(`Dia ${day} não está visível no calendário`);
+  }
+  return button;
+}
+
+function openCustom() {
+  fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
+}
 
 describe("DateRangePicker", () => {
   it("renderiza os 4 presets (24h/7d/30d/Personalizado)", () => {
@@ -45,43 +64,6 @@ describe("DateRangePicker", () => {
     expect(onChange).toHaveBeenCalledWith("2026-06-23T14:30:00.000Z", "2026-07-23T14:30:00.000Z");
   });
 
-  it("'Personalizado' revela dois inputs de data acessíveis (labels associados) e não dispara onChange sozinho", () => {
-    const onChange = vi.fn();
-    render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-
-    expect(screen.getByLabelText("De")).toBeInTheDocument();
-    expect(screen.getByLabelText("Até")).toBeInTheDocument();
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("custom: preencher só 'De' não dispara onChange; preencher os dois dispara com o intervalo do dia inteiro", () => {
-    const onChange = vi.fn();
-    render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-    fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-07-01" } });
-    expect(onChange).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-07-10" } });
-
-    expect(onChange).toHaveBeenCalledWith("2026-07-01T00:00:00.000Z", "2026-07-10T23:59:59.999Z");
-  });
-
-  it("custom: preencher 'Até' primeiro e depois 'De' também dispara onChange com ambas as datas", () => {
-    const onChange = vi.fn();
-    render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-    fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-07-10" } });
-    expect(onChange).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-07-01" } });
-
-    expect(onChange).toHaveBeenCalledWith("2026-07-01T00:00:00.000Z", "2026-07-10T23:59:59.999Z");
-  });
-
   it("preset ativo é marcado com aria-pressed (default 'Últimas 24h')", () => {
     render(<DateRangePicker onChange={vi.fn()} now={fixedNow} />);
 
@@ -98,108 +80,136 @@ describe("DateRangePicker", () => {
     expect(screen.getByRole("button", { name: "7 dias" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  describe("Personalizado (calendário do shadcn)", () => {
+    it("abre o calendário (mês atual e o anterior) sem disparar onChange sozinho", () => {
+      const onChange = vi.fn();
+      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
+
+      openCustom();
+
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(dayButton("01/06/2026")).toBeInTheDocument();
+      expect(dayButton("23/07/2026")).toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("dias futuros ficam desabilitados", () => {
+      render(<DateRangePicker onChange={vi.fn()} now={fixedNow} />);
+
+      openCustom();
+
+      expect(dayButton("24/07/2026")).toBeDisabled();
+      expect(dayButton("23/07/2026")).toBeEnabled();
+    });
+
+    it("'Aplicar' só habilita com início e fim escolhidos; aplicar emite o intervalo do dia inteiro e fecha o popover", () => {
+      const onChange = vi.fn();
+      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
+
+      openCustom();
+      const apply = screen.getByRole("button", { name: "Aplicar" });
+      expect(apply).toBeDisabled();
+
+      fireEvent.click(dayButton("01/07/2026"));
+      fireEvent.click(dayButton("10/07/2026"));
+      expect(onChange).not.toHaveBeenCalled();
+      expect(screen.getByText("01/07/2026 – 10/07/2026 · 10 dias")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+
+      expect(onChange).toHaveBeenCalledWith("2026-07-01T00:00:00.000Z", "2026-07-10T23:59:59.999Z");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "01/07/2026 – 10/07/2026" })).toBeInTheDocument();
+    });
+
+    it("em fuso UTC-3: o dia local escolhido emite os limites UTC corretos (não desloca ~3h)", () => {
+      process.env.TZ = "America/Sao_Paulo";
+      try {
+        const onChange = vi.fn();
+        render(<DateRangePicker onChange={onChange} now={fixedNow} />);
+
+        openCustom();
+        fireEvent.click(dayButton("01/07/2026"));
+        fireEvent.click(dayButton("02/07/2026"));
+        fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+
+        expect(onChange).toHaveBeenCalledWith(
+          "2026-07-01T03:00:00.000Z",
+          "2026-07-03T02:59:59.999Z",
+        );
+      } finally {
+        process.env.TZ = "UTC";
+      }
+    });
+
+    it("trocar para um preset depois do Personalizado esconde o calendário e emite o preset", () => {
+      const onChange = vi.fn();
+      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
+
+      openCustom();
+      fireEvent.click(screen.getByRole("button", { name: "7 dias" }));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(onChange).toHaveBeenCalledWith("2026-07-16T14:30:00.000Z", "2026-07-23T14:30:00.000Z");
+    });
+  });
+
   // Achado F8 (revisão de código, MÉDIA): custom misturava fronteiras UTC
-  // com exibição em fuso local — `emitCustomIfComplete` tratava a string do
-  // `<input type="date">` (dia do calendário LOCAL) como se já fosse UTC.
-  describe("localDateStringToUtcDayBounds (conversão fuso local -> limites UTC do dia)", () => {
+  // com exibição em fuso local — o dia do calendário LOCAL era tratado como
+  // se já fosse UTC.
+  describe("localDayBoundsToUtc (dia local -> limites UTC do dia)", () => {
     const ORIGINAL_TZ = process.env.TZ;
 
     afterEach(() => {
       process.env.TZ = ORIGINAL_TZ;
     });
 
-    it("em UTC-3 (fuso do projeto/README), converte o dia local pros limites UTC reais — não trata a string como se já fosse UTC", () => {
+    it("em UTC-3 (fuso do projeto/README), converte o dia local pros limites UTC reais", () => {
       process.env.TZ = "America/Sao_Paulo"; // UTC-3 o ano todo (sem DST desde 2019)
 
-      const [from, to] = localDateStringToUtcDayBounds("2026-07-01");
+      const [from, to] = localDayBoundsToUtc(new Date(2026, 6, 1));
 
-      // 01/07 00:00:00.000 -03:00 == 01/07T03:00:00.000Z (NÃO 01/07T00:00:00.000Z,
-      // que seria o resultado da concatenação ingênua corrigida por este achado).
       expect(from).toBe("2026-07-01T03:00:00.000Z");
-      // 01/07 23:59:59.999 -03:00 == 02/07T02:59:59.999Z
       expect(to).toBe("2026-07-02T02:59:59.999Z");
     });
 
-    it("em UTC (fuso do ambiente de teste default), os limites coincidem com a concatenação direta", () => {
+    it("em UTC, os limites coincidem com meia-noite/fim do dia UTC", () => {
       process.env.TZ = "UTC";
 
-      const [from, to] = localDateStringToUtcDayBounds("2026-07-01");
+      const [from, to] = localDayBoundsToUtc(new Date(2026, 6, 1, 15, 45));
 
       expect(from).toBe("2026-07-01T00:00:00.000Z");
       expect(to).toBe("2026-07-01T23:59:59.999Z");
     });
   });
 
-  it("custom em fuso UTC-3: o dia local escolhido pelo usuário emite os limites UTC corretos (não desloca ~3h como a concatenação ingênua faria)", () => {
-    process.env.TZ = "America/Sao_Paulo";
-    try {
-      const onChange = vi.fn();
-      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-      fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-      fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-07-01" } });
-      fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-07-01" } });
-
-      expect(onChange).toHaveBeenCalledWith("2026-07-01T03:00:00.000Z", "2026-07-02T02:59:59.999Z");
-    } finally {
-      process.env.TZ = "UTC";
-    }
-  });
-
-  // Achado F8 (revisão de código, MÉDIA): sem guarda client-side para custom
-  // `from > to` ou intervalo > 366 dias (MAX_RANGE_DAYS, api/src/schemas/history.ts).
-  describe("validação client-side do intervalo custom", () => {
-    it("De > Até (invertido): mostra mensagem de erro e NÃO dispara onChange", () => {
-      const onChange = vi.fn();
-      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-      fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-      fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-07-10" } });
-      fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-07-01" } });
-
-      expect(onChange).not.toHaveBeenCalled();
-      expect(screen.getByRole("alert")).toBeInTheDocument();
+  // Achado F8 (revisão de código, MÉDIA): sem guarda client-side para
+  // intervalo > 366 dias (MAX_RANGE_DAYS, api/src/schemas/history.ts).
+  describe("resolveCustomRange (validação do intervalo custom)", () => {
+    it("intervalo válido vira os limites UTC do primeiro e do último dia", () => {
+      expect(resolveCustomRange(new Date(2026, 6, 1), new Date(2026, 6, 10))).toEqual({
+        from: "2026-07-01T00:00:00.000Z",
+        to: "2026-07-10T23:59:59.999Z",
+      });
     });
 
-    it("intervalo maior que 366 dias: mostra mensagem de erro e NÃO dispara onChange", () => {
-      const onChange = vi.fn();
-      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-      fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-      fireEvent.change(screen.getByLabelText("De"), { target: { value: "2020-01-01" } });
-      fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-01-01" } });
-
-      expect(onChange).not.toHaveBeenCalled();
-      expect(screen.getByRole("alert")).toBeInTheDocument();
+    it("exatamente 366 dias é aceito (2024 é bissexto: 01/01/2024 -> 01/01/2025)", () => {
+      expect(resolveCustomRange(new Date(2024, 0, 1), new Date(2025, 0, 1))).toEqual({
+        from: "2024-01-01T00:00:00.000Z",
+        to: "2025-01-01T23:59:59.999Z",
+      });
     });
 
-    it("corrigir para um intervalo válido depois de um erro limpa a mensagem e dispara onChange normalmente", () => {
-      const onChange = vi.fn();
-      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-      fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-      fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-07-10" } });
-      fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-07-01" } });
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-      expect(onChange).not.toHaveBeenCalled();
-
-      fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-07-20" } });
-
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(onChange).toHaveBeenCalledWith("2026-07-10T00:00:00.000Z", "2026-07-20T23:59:59.999Z");
+    it("mais de 366 dias devolve erro", () => {
+      expect(resolveCustomRange(new Date(2020, 0, 1), new Date(2026, 0, 1))).toEqual({
+        error: "O intervalo não pode ser maior que 366 dias.",
+      });
     });
 
-    it("exatamente 366 dias de intervalo é aceito (não excede o limite)", () => {
-      const onChange = vi.fn();
-      render(<DateRangePicker onChange={onChange} now={fixedNow} />);
-
-      // 2024 é bissexto: 01/01/2024 -> 01/01/2025 são exatamente 366 dias.
-      fireEvent.click(screen.getByRole("button", { name: "Personalizado" }));
-      fireEvent.change(screen.getByLabelText("De"), { target: { value: "2024-01-01" } });
-      fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2025-01-01" } });
-
-      expect(onChange).toHaveBeenCalledWith("2024-01-01T00:00:00.000Z", "2025-01-01T23:59:59.999Z");
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    it("início depois do fim devolve erro", () => {
+      expect(resolveCustomRange(new Date(2026, 6, 10), new Date(2026, 6, 1))).toEqual({
+        error: "A data inicial não pode ser depois da data final.",
+      });
     });
   });
 });

@@ -7,6 +7,7 @@ import { AppShell } from "../components/AppShell";
 import { DateRangePicker } from "../components/DateRangePicker";
 import { ReadingsTable } from "../components/ReadingsTable";
 import { EmptyState } from "../components/EmptyState";
+import { ExportPdfButton } from "../components/ExportPdfButton";
 import { useHistory } from "../hooks/useHistory";
 import { buildExportUrl } from "../api-client";
 
@@ -74,6 +75,12 @@ const DEFAULT_PAGE_SIZE = 50;
  * `ReadingsTable`, reusando o mesmo componente visual (`EmptyState`/`Card`)
  * já usado para o estado vazio em vez de inventar um componente novo — só
  * o texto muda.
+ *
+ * **"Exportar PDF" (pedido do usuário, 2026-09-29)**: relatório visual do
+ * mesmo intervalo (`pdf/exportHistoryPdf.ts`: resumo por sensor, gráficos e
+ * tabela paginada), com a mesma regra `canExport` dos links de planilha. O
+ * `import()` é dinâmico pelo mesmo motivo do dashboard: o peso de
+ * `html2canvas-pro` + `jsPDF` só é pago por quem clica.
  */
 export function HistoryPage() {
   const [range, setRange] = useState<{ from?: string; to?: string }>({});
@@ -108,6 +115,11 @@ export function HistoryPage() {
   // busca). Ver comentário do arquivo.
   const canExport = data !== undefined && !isPlaceholderData;
 
+  async function handleExportPdf() {
+    const { exportHistoryToPdf } = await import("../pdf/exportHistoryPdf");
+    await exportHistoryToPdf({ from: exportFrom, to: exportTo });
+  }
+
   // Achado 1 (revisão F8): `isError` distingue uma requisição que FALHOU
   // (ex. `400` de filtro inválido, erro de rede) de um intervalo que
   // legitimamente não tem dados — sem isso, `showTable` ficava `true` com
@@ -136,7 +148,7 @@ export function HistoryPage() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <DateRangePicker onChange={handleRangeChange} />
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-start gap-2">
             {canExport ? (
               <Button asChild variant="outline" size="sm">
                 <a href={csvUrl} download>
@@ -163,6 +175,7 @@ export function HistoryPage() {
                 Exportar XLSX
               </Button>
             )}
+            <ExportPdfButton onExport={handleExportPdf} disabled={!canExport} variant="outline" />
           </div>
         </div>
 

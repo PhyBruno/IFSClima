@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLatest } from "../hooks/useLatest";
-import { FileDownIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { AppShell } from "../components/AppShell";
 import { StatusPill } from "../components/StatusPill";
 import { SensorGrid } from "../components/SensorGrid";
-import { ChartsSection } from "../components/ChartsSection";
+import { ChartsSection, getRangeFromSearch } from "../components/ChartsSection";
+import { ExportPdfButton } from "../components/ExportPdfButton";
 import { formatTime, formatDayMonth } from "../utils/formatTime";
 import { formatAge } from "../utils/formatAge";
 
@@ -69,20 +69,14 @@ const STATION_OFFLINE_THRESHOLD_SECONDS = 24 * 60 * 60;
  * não os "últimos valores" repetidos. Uma frase só, no topo, cobre as duas
  * fontes de dado de uma vez — não duplicada por seção.
  *
- * **"Exportar PDF" (pedido do usuário, 2026-08-16)**: botão no header que
- * captura o MESMO conteúdo em tela (`contentRef`, o container que envolve
- * header/`SensorGrid`/`ChartsSection`/rodapé) via `exportDashboardToPdf`
- * (`utils/exportDashboardPdf.ts` — `html2canvas` + `jsPDF`), pensado pra uso
- * em sala de aula (capa própria + os dados exatamente como o usuário está
- * vendo, não um recorte). O próprio botão carrega `data-pdf-ignore="true"`
- * (fica DENTRO do elemento capturado, mas não deveria aparecer no PDF que
- * ele mesmo gera) e fica desabilitado durante a geração (`isExporting`) pra
- * evitar cliques duplicados numa operação assíncrona que já é perceptível
- * (screenshot + composição do PDF). `import()` dinâmico (não estático no
- * topo do arquivo): `html2canvas`+`jsPDF` juntas passam de 150kB
- * minificados — code-split evita que TODO usuário do dashboard baixe esse
- * peso só porque a feature existe; só quem clica "Exportar PDF" paga o
- * custo da segunda requisição de chunk.
+ * **"Exportar PDF" (pedido do usuário, 2026-08-16; relatório redesenhado
+ * em 2026-09-29)**: o botão gera um RELATÓRIO próprio, não mais um
+ * screenshot da tela (`pdf/exportDashboardPdf.ts`: layout claro em A4 com
+ * cards, tabela-resumo e gráficos). Os dados vêm do cache do React Query
+ * (`queryClient`, os mesmos de `SensorGrid`/`ChartsSection`) para o
+ * período ativo em `?range=`. `import()` dinâmico: `html2canvas-pro` e
+ * `jsPDF` juntas passam de 150kB minificados, então só quem clica paga o
+ * download desse chunk.
  *
  * **Rodapé (feedback do usuário, 2026-07-24; assinatura do desenvolvedor
  * removida a pedido do usuário, 2026-08-16)**: "atualizado há X" morava como
@@ -113,28 +107,11 @@ export function DashboardPage() {
     ? `${formatDayMonth(data.timestamp)} ${formatTime(data.timestamp)}`
     : undefined;
 
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState(false);
+  const queryClient = useQueryClient();
 
   async function handleExportPdf() {
-    if (!contentRef.current || isExporting) {
-      return;
-    }
-
-    setIsExporting(true);
-    setExportError(false);
-    try {
-      const { exportDashboardToPdf } = await import("../utils/exportDashboardPdf");
-      await exportDashboardToPdf({
-        element: contentRef.current,
-        stationLabel: data?.station_id ?? "main",
-      });
-    } catch {
-      setExportError(true);
-    } finally {
-      setIsExporting(false);
-    }
+    const { exportDashboardToPdf } = await import("../pdf/exportDashboardPdf");
+    await exportDashboardToPdf({ queryClient, range: getRangeFromSearch(window.location.search) });
   }
 
   return (
@@ -145,7 +122,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      <div ref={contentRef} className="flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="flex flex-col gap-1">
             <h1 className="font-heading text-xl font-semibold tracking-tight md:text-2xl">
@@ -156,17 +133,7 @@ export function DashboardPage() {
               histórica do período selecionado.
             </p>
           </div>
-          <div className="flex flex-col items-start gap-1 md:items-end" data-pdf-ignore="true">
-            <Button type="button" size="sm" onClick={handleExportPdf} disabled={isExporting}>
-              <FileDownIcon aria-hidden="true" data-icon="inline-start" />
-              {isExporting ? "Gerando PDF…" : "Exportar PDF"}
-            </Button>
-            {exportError ? (
-              <span role="alert" className="text-xs text-destructive">
-                Não foi possível gerar o PDF. Tente novamente.
-              </span>
-            ) : null}
-          </div>
+          <ExportPdfButton onExport={handleExportPdf} />
         </header>
 
         <SensorGrid />
