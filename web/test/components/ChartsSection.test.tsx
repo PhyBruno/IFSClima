@@ -11,6 +11,7 @@ import {
   bucketsToLineSeries,
   bucketsToPointLabels,
   buildSearchWithRange,
+  scatterPoints,
   buildXLabels,
   getRangeFromSearch,
 } from "../../src/components/ChartsSection";
@@ -228,6 +229,55 @@ describe("funções puras de ChartsSection", () => {
     });
   });
 
+  describe("scatterPoints (dispersão — pedido do usuário, 2026-10-02)", () => {
+    it("pareia y (temperatura) e x (umidade) pelo t do bucket, com o rótulo de tempo do ponto", () => {
+      const humidity = {
+        ...seriesFixture,
+        metric: "humidity_pct" as const,
+        buckets: [
+          { t: "2026-07-23T13:00:00.000Z", avg: 60, min: 58, max: 62, sum: null },
+          { t: "2026-07-23T14:00:00.000Z", avg: 65, min: 63, max: 67, sum: null },
+        ],
+      };
+
+      expect(scatterPoints(seriesFixture, humidity)).toEqual([
+        { x: 60, y: 24.1, label: "13:00" },
+        { x: 65, y: 24.7, label: "14:00" },
+      ]);
+    });
+
+    it("só entram buckets em que as DUAS métricas têm avg — gap ou horário ausente em uma delas nunca desalinha os pares", () => {
+      const temperature = {
+        ...seriesFixture,
+        buckets: [
+          { t: "2026-07-23T13:00:00.000Z", avg: 24.1, min: null, max: null, sum: null },
+          { t: "2026-07-23T14:00:00.000Z", avg: null, min: null, max: null, sum: null },
+          { t: "2026-07-23T15:00:00.000Z", avg: 25.0, min: null, max: null, sum: null },
+          { t: "2026-07-23T16:00:00.000Z", avg: 25.5, min: null, max: null, sum: null },
+        ],
+      };
+      const pressure = {
+        ...seriesFixture,
+        metric: "pressure_hpa" as const,
+        buckets: [
+          { t: "2026-07-23T13:00:00.000Z", avg: 1012, min: null, max: null, sum: null },
+          { t: "2026-07-23T14:00:00.000Z", avg: 1013, min: null, max: null, sum: null },
+          { t: "2026-07-23T16:00:00.000Z", avg: 1015, min: null, max: null, sum: null },
+        ],
+      };
+
+      expect(scatterPoints(temperature, pressure)).toEqual([
+        { x: 1012, y: 24.1, label: "13:00" },
+        { x: 1015, y: 25.5, label: "16:00" },
+      ]);
+    });
+
+    it("resposta ausente (query sem dado) → []", () => {
+      expect(scatterPoints(undefined, seriesFixture)).toEqual([]);
+      expect(scatterPoints(seriesFixture, undefined)).toEqual([]);
+    });
+  });
+
   describe("bucketsToPointLabels", () => {
     it("um rótulo POR bucket (não só os extremos, diferente de buildXLabels)", () => {
       expect(bucketsToPointLabels(seriesFixture, "avg")).toEqual(["13:00", "14:00"]);
@@ -350,12 +400,10 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     // T6.4: cada card nasce como `ChartCardSkeleton` (`isPending`, sem dado
     // em cache ainda, `data-testid="chartcard-skeleton"`) e só vira o
     // `ChartCard` real (`data-testid="chartcard"`) quando o fetch resolve.
-    // Espera os 8 `chartcard` REAIS existirem (5 métrica única + 3 combos,
+    // Espera os 7 `chartcard` REAIS existirem (5 métrica única + 2 combos,
     // ver `COMBO_CHARTS`) antes de procurar o de Chuva especificamente —
-    // checar só o de Chuva isolado seria frágil aqui. O combo "uv-rain" usa
-    // o rótulo "Chuva (média)" (não "Chuva"), então continua havendo um SÓ
-    // elemento com o texto exato "Chuva" (o título do card standalone).
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+    // checar só o de Chuva isolado seria frágil aqui.
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(7));
 
     const rainCard = chartCardByTitle("Chuva");
     expect(
@@ -376,9 +424,9 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     render(<ChartsSection />, { wrapper: createWrapper() });
 
     const emptyMessages = await screen.findAllByText("Nenhum dado no período");
-    // 5 métricas + 3 combos (as 2 métricas de cada combo também ficam vazias
-    // com este handler), todas sem dado no período selecionado.
-    expect(emptyMessages).toHaveLength(8);
+    // 5 métricas + 2 combos + 2 dispersões (as métricas de cada combo/
+    // dispersão também ficam vazias com este handler), todas sem dado.
+    expect(emptyMessages).toHaveLength(9);
   });
 
   it("T6.4: mostra skeleton por gráfico durante o carregamento inicial (sem dado em cache ainda)", () => {
@@ -386,15 +434,15 @@ describe("ChartsSection (integração RTL + MSW)", () => {
 
     // Sem `await`/`waitFor` de propósito — o instante síncrono pós-render
     // (antes do MSW resolver) é exatamente o que este teste cobre. 5 cards de
-    // métrica única + 3 combos, todos nascem em skeleton (`comboIsPending`).
-    expect(screen.getAllByTestId("chartcard-skeleton")).toHaveLength(8);
+    // métrica única + 2 combos + 2 dispersões, todos nascem em skeleton.
+    expect(screen.getAllByTestId("chartcard-skeleton")).toHaveLength(9);
     expect(screen.queryAllByTestId("chartcard")).toHaveLength(0);
   });
 
   it("T6.4/UI-09: grid de gráficos é responsivo (1 coluna mobile, 2 no breakpoint md:)", async () => {
     render(<ChartsSection />, { wrapper: createWrapper() });
 
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(7));
 
     const grid = screen.getAllByTestId("chartcard")[0]!.parentElement!;
     expect(grid).toHaveClass("grid", "grid-cols-1", "md:grid-cols-2");
@@ -418,20 +466,20 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     }
     render(<ChartsSection />, { wrapper: Wrapper });
 
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(7));
 
     server.use(http.get("/api/v1/readings/series", () => new HttpResponse(null, { status: 500 })));
     await client.refetchQueries({ queryKey: ["readings", "series"] }).catch(() => {});
 
     await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
     expect(screen.getByText(/reconectando/i)).toBeInTheDocument();
-    // Nunca tela branca: os 8 gráficos (5 métrica única + 3 combos, com o
+    // Nunca tela branca: os 7 gráficos (5 métrica única + 2 combos, com o
     // dado de 24h já carregado) continuam visíveis.
-    expect(screen.getAllByTestId("chartcard")).toHaveLength(8);
+    expect(screen.getAllByTestId("chartcard")).toHaveLength(7);
   });
 
   describe("Comparativos (combos de 2 métricas — pedido do usuário do produto, 2026-07-24)", () => {
-    it("renderiza os 3 cards combo com seus títulos, reaproveitando as MESMAS 5 queries de métrica única (sem request de rede extra)", async () => {
+    it("renderiza os 2 cards combo com seus títulos (o combo Índice UV × Chuva foi removido em 2026-10-02), reaproveitando as MESMAS 5 queries de métrica única (sem request de rede extra)", async () => {
       let callCount = 0;
       server.use(
         http.get("/api/v1/readings/series", ({ request }) => {
@@ -443,18 +491,18 @@ describe("ChartsSection (integração RTL + MSW)", () => {
 
       render(<ChartsSection />, { wrapper: createWrapper() });
 
-      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(7));
 
-      expect(screen.getByText("Temperatura × Umidade")).toBeInTheDocument();
-      expect(screen.getByText("Índice UV × Chuva — chuva média (mm)")).toBeInTheDocument();
-      expect(screen.getByText("Temperatura × Pressão")).toBeInTheDocument();
+      expect(screen.getByText("Temperatura e Umidade")).toBeInTheDocument();
+      expect(screen.queryByText(/Índice UV (×|e) Chuva/)).not.toBeInTheDocument();
+      expect(screen.getByText("Temperatura e Pressão")).toBeInTheDocument();
 
       // 5 métricas únicas — os combos reaproveitam a MESMA queryKey (mesmo
       // cache do React Query), então nenhuma requisição além das 5 originais.
       expect(callCount).toBe(5);
     });
 
-    it("combo Temperatura × Umidade: 2 áreas, uma por métrica, cor por série", async () => {
+    it("combo Temperatura e Umidade: 2 áreas, uma por métrica, cor por série", async () => {
       server.use(
         http.get("/api/v1/readings/series", ({ request }) => {
           const metric = new URL(request.url).searchParams.get("metric");
@@ -463,41 +511,13 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       );
 
       render(<ChartsSection />, { wrapper: createWrapper() });
-      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(7));
 
-      const card = chartCardByTitle("Temperatura × Umidade");
+      const card = chartCardByTitle("Temperatura e Umidade");
       expect(card.querySelectorAll(".recharts-area")).toHaveLength(2);
       const css = card.querySelector("style")!.textContent!;
       expect(css).toContain("--color-s0: var(--sensor-temperature)");
       expect(css).toContain("--color-s1: var(--sensor-humidity)");
-    });
-
-    it("combo Índice UV × Chuva usa a MÉDIA da chuva (avg), não a soma acumulada do card standalone — o card 'Chuva' original não muda de dado, só de traço (linha desde 2026-08-16)", async () => {
-      server.use(
-        http.get("/api/v1/readings/series", ({ request }) => {
-          const metric = new URL(request.url).searchParams.get("metric");
-          return HttpResponse.json(metric === "rain_mm" ? rainSeriesFixture : seriesFixture);
-        }),
-      );
-
-      render(<ChartsSection />, { wrapper: createWrapper() });
-      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
-
-      // Card standalone "Chuva": 1 linha só (não é combo), com os valores de
-      // `sum` (0.4, 0.1) — cobertura de VALOR fica no teste puro de
-      // `bucketsToLineSeries(..., "sum")` acima; aqui só confere o traço.
-      const rainCard = chartCardByTitle("Chuva");
-      expect(rainCard.querySelectorAll(".recharts-area")).toHaveLength(1);
-      expect(rainCard.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(0);
-
-      // Combo "uv-rain": 2 linhas (Índice UV + Chuva com avg, não sum) — o
-      // tooltip do 1º ponto mostra a média (0.1mm), não a soma (0.4mm).
-      const comboCard = chartCardByTitle("Índice UV × Chuva — chuva média (mm)");
-      expect(comboCard.querySelectorAll(".recharts-area")).toHaveLength(2);
-      expect(comboCard.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(0);
-
-      const tooltip = await hoverFirstPoint(comboCard);
-      expect(tooltip).toHaveTextContent("Chuva (média)0.1mm");
     });
 
     it("combo com unidades diferentes (°C × hPa) ganha um eixo Y por série, cada um com sua unidade, e o tooltip usa a unidade de cada série", async () => {
@@ -509,9 +529,9 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       );
 
       render(<ChartsSection />, { wrapper: createWrapper() });
-      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(7));
 
-      const card = chartCardByTitle("Temperatura × Pressão");
+      const card = chartCardByTitle("Temperatura e Pressão");
       const axes = yAxisTicks(card);
       expect(axes).toHaveLength(2);
       axes[0]!.forEach((tick) => expect(tick).toMatch(/°C$/));
@@ -522,6 +542,59 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       const tooltip = await hoverFirstPoint(card);
       expect(tooltip).toHaveTextContent("Temperatura24.1°C");
       expect(tooltip).toHaveTextContent("Pressão24.1hPa");
+    });
+  });
+
+  describe("Dispersão (uma grandeza em função da outra — pedido do usuário, 2026-10-02)", () => {
+    const humidityFixture = {
+      ...seriesFixture,
+      metric: "humidity_pct" as const,
+      buckets: [
+        { t: "2026-07-23T13:00:00.000Z", avg: 60, min: 58, max: 62, sum: null },
+        { t: "2026-07-23T14:00:00.000Z", avg: 65, min: 63, max: 67, sum: null },
+      ],
+    };
+
+    function scatterCardByTitle(title: string): HTMLElement {
+      return screen
+        .getByRole("heading", { name: title, level: 3 })
+        .closest<HTMLElement>('[data-testid="scatterchartcard"]')!;
+    }
+
+    it("Temperatura × Umidade e Temperatura × Pressão: temperatura no eixo Y, a outra grandeza no eixo X, um ponto por bucket", async () => {
+      server.use(
+        http.get("/api/v1/readings/series", ({ request }) => {
+          const metric = new URL(request.url).searchParams.get("metric");
+          if (metric === "humidity_pct") return HttpResponse.json(humidityFixture);
+          return HttpResponse.json(metric === "rain_mm" ? rainSeriesFixture : seriesFixture);
+        }),
+      );
+
+      render(<ChartsSection />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getAllByTestId("scatterchartcard")).toHaveLength(2));
+
+      const humidityCard = scatterCardByTitle("Temperatura × Umidade");
+      expect(
+        within(humidityCard).getByRole("img", {
+          name: "Gráfico de dispersão: Temperatura × Umidade (Temperatura no eixo Y, Umidade no eixo X)",
+        }),
+      ).toBeInTheDocument();
+      expect(humidityCard.querySelectorAll(".recharts-scatter-symbol")).toHaveLength(2);
+      const yTicks = Array.from(
+        humidityCard.querySelectorAll(".recharts-yAxis-tick-labels text"),
+      ).map((t) => t.textContent ?? "");
+      const xTicks = Array.from(
+        humidityCard.querySelectorAll(".recharts-xAxis-tick-labels text"),
+      ).map((t) => t.textContent ?? "");
+      expect(yTicks.length).toBeGreaterThan(0);
+      expect(xTicks.length).toBeGreaterThan(0);
+      yTicks.forEach((tick) => expect(tick).toMatch(/°C$/));
+      xTicks.forEach((tick) => expect(tick).toMatch(/%$/));
+
+      const pressureCard = scatterCardByTitle("Temperatura × Pressão");
+      Array.from(pressureCard.querySelectorAll(".recharts-xAxis-tick-labels text")).forEach((t) =>
+        expect(t.textContent).toMatch(/hPa$/),
+      );
     });
   });
 });

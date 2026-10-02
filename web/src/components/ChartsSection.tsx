@@ -3,6 +3,7 @@ import { useQueries, type UseQueryResult } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartCard, type ChartSeries } from "./ChartCard";
+import { ScatterChartCard, type ScatterPoint } from "./ScatterChartCard";
 import { PeriodSelector, type PeriodOption } from "./PeriodSelector";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { seriesQueryOptions } from "../hooks/useSeries";
@@ -267,10 +268,49 @@ export function bucketsToPointLabels(
   if (response.range === "7d") {
     return response.buckets
       .filter((bucket) => bucket[field] !== null)
-      .map((bucket) => `${formatDayMonth(bucket.t)} ${formatTime(bucket.t)}`);
+      .map((bucket) => formatPointLabel(bucket.t, response));
   }
 
   return extractSeriesData(response.buckets, field, response.bucket).labels;
+}
+
+/** Rótulo de tempo de UM ponto — mesma regra de `bucketsToPointLabels` (`7d` = dia + hora). */
+function formatPointLabel(t: string, response: SeriesResponse): string {
+  return response.range === "7d"
+    ? `${formatDayMonth(t)} ${formatTime(t)}`
+    : formatBucketLabel(t, response.bucket);
+}
+
+/**
+ * Pares (x, y) de dois `SeriesResponse` para o gráfico de dispersão (pedido
+ * do usuário, 2026-10-02 — uma grandeza em função da outra). O pareamento é
+ * pelo `t` do bucket (não pelo índice): só entram buckets em que AS DUAS
+ * métricas têm `avg` — um gap em uma delas nunca casa o valor de um horário
+ * com o de outro. O rótulo de tempo vai junto pro tooltip.
+ */
+export function scatterPoints(
+  yResponse: SeriesResponse | undefined,
+  xResponse: SeriesResponse | undefined,
+): ScatterPoint[] {
+  if (!yResponse || !xResponse) {
+    return [];
+  }
+
+  const xByTime = new Map<string, number>();
+  for (const bucket of xResponse.buckets) {
+    if (bucket.avg !== null) {
+      xByTime.set(bucket.t, bucket.avg);
+    }
+  }
+
+  const points: ScatterPoint[] = [];
+  for (const bucket of yResponse.buckets) {
+    const x = xByTime.get(bucket.t);
+    if (bucket.avg !== null && x !== undefined) {
+      points.push({ x, y: bucket.avg, label: formatPointLabel(bucket.t, yResponse) });
+    }
+  }
+  return points;
 }
 
 interface MetricChartConfig {
@@ -354,27 +394,18 @@ interface ComboSeriesConfig {
  */
 interface ComboChartConfig {
   key: string;
-  /**
-   * Sempre "line" — ambas as séries dos 3 combos usam `avg`
-   * (`bucketsToLineSeries`), inclusive Chuva (ver `series[1]` do combo
-   * "uv-rain" abaixo e a nota no próprio título). Não existe hoje um modo
-   * bar+linha sobreposto no `ChartCard` (`variant` é um valor só por card,
-   * `ChartCard.tsx`) — estender pra isso seria bem mais trabalho (um eixo/
-   * geometria por variante desenhados juntos) só pra manter "chuva
-   * acumulada" também no combo. Optou-se pela alternativa mais simples:
-   * chuva vira MÉDIA (não soma) neste card específico, e o título deixa
-   * isso explícito ("chuva média") pra não ser confundido com o card
-   * standalone "Chuva" (que também é `variant="line"` desde 2026-08-16, mas
-   * `aggregation="sum"` — acumulada, não uma média; ver `METRIC_CHARTS`
-   * acima e a docstring de `bucketsToLineSeries`).
-   */
+  /** Sempre "line" — as 2 séries de cada combo usam `avg` (`bucketsToLineSeries`). */
   title: string;
   series: [ComboSeriesConfig, ComboSeriesConfig];
 }
 
 /**
- * Os 3 combos pedidos: Temperatura×Umidade, Índice UV×Chuva, Temperatura×
- * Pressão. Todas as 5 métricas aqui já são buscadas pelos 5 `ChartCard`s de
+ * Os 2 combos: Temperatura e Umidade, Temperatura e Pressão (o combo Índice
+ * UV × Chuva foi removido em 2026-10-02, pedido do usuário). Títulos com "e"
+ * (não "×") desde 2026-10-02, pedido do usuário: esses cards mostram as duas
+ * grandezas AO LONGO DO TEMPO, não uma em função da outra — o "×" ficou
+ * reservado aos gráficos de dispersão (`SCATTER_CHARTS`, abaixo). Todas as
+ * métricas aqui já são buscadas pelos 5 `ChartCard`s de
  * `METRIC_CHARTS` (mesmo `range`) — `comboSeries`/`comboIsPending` abaixo
  * leem o MESMO resultado de `useQueries` por `metric` (`resultByMetric`),
  * então nenhuma requisição de rede extra é feita (mesma `queryKey` = mesmo
@@ -384,7 +415,7 @@ interface ComboChartConfig {
 const COMBO_CHARTS: ComboChartConfig[] = [
   {
     key: "temperature-humidity",
-    title: "Temperatura × Umidade",
+    title: "Temperatura e Umidade",
     series: [
       {
         metric: "temperature_c",
@@ -401,20 +432,8 @@ const COMBO_CHARTS: ComboChartConfig[] = [
     ],
   },
   {
-    key: "uv-rain",
-    // "chuva média (mm)" no título (não só no rótulo da série): deixa claro
-    // de cara que este NÃO é o mesmo dado do card standalone "Chuva"
-    // (acumulado/bar) — pedido explícito do usuário do produto pra evitar
-    // confusão entre as duas semânticas de chuva coexistindo no dashboard.
-    title: "Índice UV × Chuva — chuva média (mm)",
-    series: [
-      { metric: "uv_index", label: "Índice UV", color: "var(--sensor-uv)", unit: "" },
-      { metric: "rain_mm", label: "Chuva (média)", color: "var(--sensor-rain)", unit: "mm" },
-    ],
-  },
-  {
     key: "temperature-pressure",
-    title: "Temperatura × Pressão",
+    title: "Temperatura e Pressão",
     series: [
       {
         metric: "temperature_c",
@@ -429,6 +448,53 @@ const COMBO_CHARTS: ComboChartConfig[] = [
         unit: "hPa",
       },
     ],
+  },
+];
+
+interface ScatterAxisMetric {
+  metric: Metric;
+  label: string;
+  unit: string;
+}
+
+/** Um gráfico de dispersão: `y` em função de `x` (ver `scatterPoints`/`ScatterChartCard`). */
+interface ScatterChartConfig {
+  key: string;
+  title: string;
+  color: string;
+  x: ScatterAxisMetric;
+  y: ScatterAxisMetric;
+}
+
+const TEMPERATURE_AXIS: ScatterAxisMetric = {
+  metric: "temperature_c",
+  label: "Temperatura",
+  unit: "°C",
+};
+
+/**
+ * Dispersões pedidas pelo usuário (2026-10-02): temperatura no eixo Y,
+ * umidade/pressão no eixo X. Mesmas métricas de `METRIC_CHARTS` → leem o
+ * MESMO `resultByMetric`, sem request extra (mesma regra de `COMBO_CHARTS`).
+ *
+ * Pontos em `--foreground` (pedido do usuário, 2026-10-02: "pontos
+ * brancos") — branco no tema escuro; no claro vira quase preto, já que
+ * branco puro sumiria no fundo branco do card.
+ */
+const SCATTER_CHARTS: ScatterChartConfig[] = [
+  {
+    key: "scatter-temperature-humidity",
+    title: "Temperatura × Umidade",
+    color: "var(--foreground)",
+    x: { metric: "humidity_pct", label: "Umidade", unit: "%" },
+    y: TEMPERATURE_AXIS,
+  },
+  {
+    key: "scatter-temperature-pressure",
+    title: "Temperatura × Pressão",
+    color: "var(--foreground)",
+    x: { metric: "pressure_hpa", label: "Pressão", unit: "hPa" },
+    y: TEMPERATURE_AXIS,
   },
 ];
 
@@ -502,7 +568,7 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
     queries: METRIC_CHARTS.map((config) => seriesQueryOptions(config.metric, range)),
   });
 
-  // Índice por `metric` dos MESMOS 5 resultados acima — os 3 combos
+  // Índice por `metric` dos MESMOS 5 resultados acima — os combos
   // (`COMBO_CHARTS`) leem daqui por nome de métrica (não por posição, já que
   // um combo mistura 2 métricas que não são "a próxima da lista"), sem
   // nenhum `useQueries`/`useQuery` adicional (dedupe do React Query, ver
@@ -566,8 +632,8 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
         })}
       </div>
 
-      {/* "Comparativos" — os 3 combos pedidos (2 métricas por card, ver
-          `COMBO_CHARTS`), numa seção própria abaixo do grid de métrica
+      {/* "Comparativos" — os combos (2 métricas por card, ver
+          `COMBO_CHARTS`) e as dispersões (`SCATTER_CHARTS`), numa seção própria abaixo do grid de métrica
           única — mesmo grid responsivo (`md:grid-cols-2 xl:grid-cols-3`),
           só com um heading (`<h2>`, mesmo estilo de seção usado em
           `DemoGallery.tsx`) pra separar visualmente as duas categorias de
@@ -588,6 +654,24 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
               series={comboSeries(config, resultByMetric)}
               xLabels={comboXLabels(config, resultByMetric)}
               pointLabels={comboPointLabels(config, resultByMetric)}
+            />
+          );
+        })}
+        {SCATTER_CHARTS.map((config) => {
+          const yResult = resultByMetric.get(config.y.metric);
+          const xResult = resultByMetric.get(config.x.metric);
+          if (!yResult || !xResult || yResult.isPending || xResult.isPending) {
+            return <ChartCardSkeleton key={config.key} title={config.title} />;
+          }
+
+          return (
+            <ScatterChartCard
+              key={config.key}
+              title={config.title}
+              color={config.color}
+              points={scatterPoints(yResult.data, xResult.data)}
+              xAxis={config.x}
+              yAxis={config.y}
             />
           );
         })}
