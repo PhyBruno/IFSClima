@@ -207,7 +207,9 @@ function extractSeriesData(
  * `bucketsToBarSeries` abaixo) — continua somando por bucket, só desenhado
  * como linha em vez de barras. `METRIC_CHARTS`/`aggregation` decide isso;
  * as chamadas de `comboSeries` (combos) continuam com o default `"avg"`,
- * inalteradas.
+ * inalteradas. (Em 2026-10-02 a chuva virou 2 cards — Distribuição em barras,
+ * Acumulada em linha via `bucketsToCumulativeSeries` —, então nenhum card de
+ * `METRIC_CHARTS` usa mais `field="sum"` aqui; o parâmetro fica disponível.)
  */
 export function bucketsToLineSeries(
   response: SeriesResponse | undefined,
@@ -224,6 +226,31 @@ export function bucketsToLineSeries(
   return points.length === 0
     ? []
     : [{ label, color, points, ...(unit !== undefined ? { unit } : {}) }];
+}
+
+/**
+ * Soma CORRIDA do `sum` dos buckets → 1 série de linha (pedido do usuário,
+ * 2026-10-02: card "Chuva (Acumulada)"). Cada ponto é o total chovido desde
+ * o início do período até aquele bucket — curva monotônica, o último ponto é
+ * o total do período. Buckets com `sum=null` são pulados (mesma regra de
+ * `extractSeriesData`), o que mantém o alinhamento com
+ * `bucketsToPointLabels(response, "sum")`.
+ */
+export function bucketsToCumulativeSeries(
+  response: SeriesResponse | undefined,
+  label: string,
+  color: string,
+): ChartSeries[] {
+  if (!response) {
+    return [];
+  }
+
+  const { points } = extractSeriesData(response.buckets, "sum", response.bucket);
+  let total = 0;
+  // Arredonda a 2 casas a cada passo: somar floats (0.1 + 0.2...) deixaria
+  // resíduos tipo 0.30000000000000004 no tooltip.
+  const cumulative = points.map((value) => (total = Math.round((total + value) * 100) / 100));
+  return cumulative.length === 0 ? [] : [{ label, color, points: cumulative }];
 }
 
 /** `sum` (não `avg`) de cada bucket → 1 série de barras — chuva é acumulada, não uma média (UI-07/spec.md AC3). */
@@ -322,20 +349,30 @@ interface MetricChartConfig {
   /** Unidade exibida no eixo Y e no tooltip do `ChartCard` (feedback do usuário, 2026-07-24) — mesmos valores usados em `SensorGrid.SENSORS`. */
   unit: string;
   /**
-   * Campo agregado por bucket em `variant="line"` — `"avg"` (default,
-   * omitido) pra maioria das métricas; Chuva usa `"sum"` (pedido do
-   * usuário, 2026-08-16: virou `variant="line"` como as outras, mas
-   * continua ACUMULADA por bucket, não uma média — ver docstring de
-   * `bucketsToLineSeries`). Sem efeito em `variant="bar"` — `bucketsToBarSeries`
-   * já é sempre `sum` (não usado por nenhum `METRIC_CHARTS` hoje).
+   * Campo agregado por bucket — `"avg"` (default, omitido) pra maioria das
+   * métricas; os 2 cards de Chuva usam `"sum"` (volume do bucket, não uma
+   * média). Também define o campo dos rótulos de tooltip
+   * (`bucketsToPointLabels`), por isso é declarado mesmo em `variant="bar"`,
+   * onde `bucketsToBarSeries` já é sempre `sum`.
    */
   aggregation?: "avg" | "sum";
+  /**
+   * Soma corrida do `sum` (`bucketsToCumulativeSeries`) em vez do valor de
+   * cada bucket — card "Chuva (Acumulada)" (pedido do usuário, 2026-10-02).
+   * Exige `aggregation: "sum"` (os rótulos de tooltip usam o mesmo campo).
+   */
+  cumulative?: boolean;
 }
 
 /**
- * Ordem/composição do grid (design.md "Layout"): Temp/Umidade, Pressão/Chuva, UV
- * — 2 colunas (md:). `xl:grid-cols-3` (feedback do usuário, 2026-07-24)
- * reflui pra 3+2 em telas bem largas, sem espaço vazio óbvio ao lado.
+ * Ordem/composição do grid (design.md "Layout"): Temp/Umidade, Pressão/Chuva
+ * (Distribuição), Chuva (Acumulada)/UV — 2 colunas (md:), 3+3 em `xl:`.
+ *
+ * Chuva em DOIS cards (pedido do usuário e do professor, 2026-10-02): o de
+ * "Distribuição" é o volume de cada bucket (quando choveu e quanto em cada
+ * hora/dia); o de "Acumulada" é a soma corrida (quanto choveu até ali no
+ * período). Os dois leem a MESMA query de `rain_mm` — `useQueries` abaixo é
+ * montado sobre `METRICS` (métricas únicas), não sobre os cards.
  */
 const METRIC_CHARTS: MetricChartConfig[] = [
   {
@@ -361,11 +398,23 @@ const METRIC_CHARTS: MetricChartConfig[] = [
   },
   {
     metric: "rain_mm",
-    title: "Chuva",
+    title: "Chuva (Distribuição)",
+    color: "var(--sensor-rain)",
+    // Barras (hietograma), pedido do usuário, 2026-10-02: cada valor é o
+    // volume de um intervalo isolado — discreto. A acumulada (abaixo) fica
+    // em linha: é contínua e a inclinação dela é a intensidade.
+    variant: "bar",
+    unit: "mm",
+    aggregation: "sum",
+  },
+  {
+    metric: "rain_mm",
+    title: "Chuva (Acumulada)",
     color: "var(--sensor-rain)",
     variant: "line",
     unit: "mm",
     aggregation: "sum",
+    cumulative: true,
   },
   {
     metric: "uv_index",
@@ -375,6 +424,9 @@ const METRIC_CHARTS: MetricChartConfig[] = [
     unit: "",
   },
 ];
+
+/** Uma query por métrica distinta (os 2 cards de chuva compartilham `rain_mm`). */
+const METRICS: Metric[] = [...new Set(METRIC_CHARTS.map((config) => config.metric))];
 
 /** Uma das 2 métricas desenhadas num `ComboChartConfig` — vira 1 `ChartSeries` via `bucketsToLineSeries(..., unit)`. */
 interface ComboSeriesConfig {
@@ -498,6 +550,16 @@ const SCATTER_CHARTS: ScatterChartConfig[] = [
   },
 ];
 
+/**
+ * Colunas da seção "Comparativos" (pedido do usuário, 2026-10-02): cada
+ * coluna junta o combo ao longo do tempo (em cima) com a dispersão das
+ * MESMAS 2 grandezas (embaixo) — Umidade numa coluna, Pressão na outra.
+ */
+const COMPARISON_COLUMNS: { combo: ComboChartConfig; scatter: ScatterChartConfig }[] = [
+  { combo: COMBO_CHARTS[0]!, scatter: SCATTER_CHARTS[0]! },
+  { combo: COMBO_CHARTS[1]!, scatter: SCATTER_CHARTS[1]! },
+];
+
 type MetricSeriesResult = UseQueryResult<SeriesResponse, Error>;
 
 /** As 2 séries de um combo, já no shape de `ChartCard` (uma por métrica, unidade própria — ver `ComboSeriesConfig.unit`). Métrica sem dado (query pendente/vazia) contribui `[]` (mesma regra de `bucketsToLineSeries`), então um combo com só 1 das 2 métricas preenchida ainda desenha aquela série sozinha (não é tratado como card inteiro vazio, a não ser que AS DUAS estejam vazias — `isEmptySeries` do `ChartCard` já cobre isso). */
@@ -565,16 +627,17 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
   const [range, setRange] = useState<Range>(() => getRangeFromSearch(window.location.search));
 
   const seriesResults = useQueries({
-    queries: METRIC_CHARTS.map((config) => seriesQueryOptions(config.metric, range)),
+    queries: METRICS.map((metric) => seriesQueryOptions(metric, range)),
   });
 
-  // Índice por `metric` dos MESMOS 5 resultados acima — os combos
-  // (`COMBO_CHARTS`) leem daqui por nome de métrica (não por posição, já que
-  // um combo mistura 2 métricas que não são "a próxima da lista"), sem
-  // nenhum `useQueries`/`useQuery` adicional (dedupe do React Query, ver
-  // docstring de `COMBO_CHARTS`).
+  // Índice por `metric` dos MESMOS 5 resultados acima — os cards de métrica
+  // única, os combos (`COMBO_CHARTS`) e as dispersões leem daqui por nome de
+  // métrica (não por posição: os 2 cards de chuva usam a mesma query, e um
+  // combo mistura 2 métricas que não são "a próxima da lista"), sem nenhum
+  // `useQueries`/`useQuery` adicional (dedupe do React Query, ver docstring
+  // de `COMBO_CHARTS`).
   const resultByMetric = new Map<Metric, MetricSeriesResult>(
-    METRIC_CHARTS.map((config, index) => [config.metric, seriesResults[index]!]),
+    METRICS.map((metric, index) => [metric, seriesResults[index]!]),
   );
 
   // Banner de reconexão (UI-10): pelo menos uma métrica com a busca atual em
@@ -602,25 +665,23 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
       <PeriodSelector options={RANGE_OPTIONS} value={range} onChange={handleRangeChange} />
       <ConnectionBanner show={anyStaleError} />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {METRIC_CHARTS.map((config, index) => {
-          // `seriesResults` está na MESMA ordem/tamanho de `METRIC_CHARTS`
-          // (garantido pelo `useQueries({ queries: METRIC_CHARTS.map(...) })`
-          // acima) — índice posicional, não busca por metric.
-          const result = seriesResults[index]!;
+        {METRIC_CHARTS.map((config) => {
+          const result = resultByMetric.get(config.metric)!;
 
           if (result.isPending) {
-            return <ChartCardSkeleton key={config.metric} title={config.title} />;
+            return <ChartCardSkeleton key={config.title} title={config.title} />;
           }
 
           const field = config.aggregation ?? "avg";
-          const series =
-            config.variant === "bar"
+          const series = config.cumulative
+            ? bucketsToCumulativeSeries(result.data, config.title, config.color)
+            : config.variant === "bar"
               ? bucketsToBarSeries(result.data, config.title, config.color)
               : bucketsToLineSeries(result.data, config.title, config.color, undefined, field);
 
           return (
             <ChartCard
-              key={config.metric}
+              key={config.title}
               title={config.title}
               variant={config.variant}
               series={series}
@@ -634,45 +695,42 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
 
       {/* "Comparativos" — os combos (2 métricas por card, ver
           `COMBO_CHARTS`) e as dispersões (`SCATTER_CHARTS`), numa seção própria abaixo do grid de métrica
-          única — mesmo grid responsivo (`md:grid-cols-2 xl:grid-cols-3`),
-          só com um heading (`<h2>`, mesmo estilo de seção usado em
-          `DemoGallery.tsx`) pra separar visualmente as duas categorias de
-          card sem misturar 5+3 no mesmo fluxo, o que confundiria "métrica
-          única" com "comparativo" pro usuário. */}
+          única, com um heading (`<h2>`, mesmo estilo de seção usado em
+          `DemoGallery.tsx`) pra não confundir "métrica única" com
+          "comparativo". 2 colunas, não 3 (pedido do usuário, 2026-10-02:
+          são 4 cards) — uma por `COMPARISON_COLUMNS`, combo em cima e
+          dispersão embaixo; em 1 coluna (mobile) os pares seguem juntos. */}
       <h2 className="font-heading text-base font-semibold">Comparativos</h2>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {COMBO_CHARTS.map((config) => {
-          if (comboIsPending(config, resultByMetric)) {
-            return <ChartCardSkeleton key={config.key} title={config.title} />;
-          }
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {COMPARISON_COLUMNS.map(({ combo, scatter }) => {
+          const yResult = resultByMetric.get(scatter.y.metric);
+          const xResult = resultByMetric.get(scatter.x.metric);
 
           return (
-            <ChartCard
-              key={config.key}
-              title={config.title}
-              variant="line"
-              series={comboSeries(config, resultByMetric)}
-              xLabels={comboXLabels(config, resultByMetric)}
-              pointLabels={comboPointLabels(config, resultByMetric)}
-            />
-          );
-        })}
-        {SCATTER_CHARTS.map((config) => {
-          const yResult = resultByMetric.get(config.y.metric);
-          const xResult = resultByMetric.get(config.x.metric);
-          if (!yResult || !xResult || yResult.isPending || xResult.isPending) {
-            return <ChartCardSkeleton key={config.key} title={config.title} />;
-          }
-
-          return (
-            <ScatterChartCard
-              key={config.key}
-              title={config.title}
-              color={config.color}
-              points={scatterPoints(yResult.data, xResult.data)}
-              xAxis={config.x}
-              yAxis={config.y}
-            />
+            <div key={combo.key} data-testid="comparison-column" className="flex flex-col gap-3">
+              {comboIsPending(combo, resultByMetric) ? (
+                <ChartCardSkeleton title={combo.title} />
+              ) : (
+                <ChartCard
+                  title={combo.title}
+                  variant="line"
+                  series={comboSeries(combo, resultByMetric)}
+                  xLabels={comboXLabels(combo, resultByMetric)}
+                  pointLabels={comboPointLabels(combo, resultByMetric)}
+                />
+              )}
+              {!yResult || !xResult || yResult.isPending || xResult.isPending ? (
+                <ChartCardSkeleton title={scatter.title} />
+              ) : (
+                <ScatterChartCard
+                  title={scatter.title}
+                  color={scatter.color}
+                  points={scatterPoints(yResult.data, xResult.data)}
+                  xAxis={scatter.x}
+                  yAxis={scatter.y}
+                />
+              )}
+            </div>
           );
         })}
       </div>
