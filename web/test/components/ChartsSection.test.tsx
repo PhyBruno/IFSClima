@@ -8,9 +8,9 @@ import { createQueryClient } from "../../src/providers/QueryProvider";
 import {
   ChartsSection,
   bucketsToBarSeries,
-  bucketsToCumulativeSeries,
   bucketsToLineSeries,
   bucketsToPointLabels,
+  bucketsToTotalSeries,
   buildSearchWithRange,
   scatterPoints,
   buildXLabels,
@@ -163,14 +163,14 @@ describe("funções puras de ChartsSection", () => {
     });
   });
 
-  describe("bucketsToCumulativeSeries (Chuva Acumulada — pedido do usuário, 2026-10-02)", () => {
-    it("soma corrida do sum de cada bucket (sem resíduo de float: 0.4 + 0.1 = 0.5)", () => {
-      expect(bucketsToCumulativeSeries(rainSeriesFixture, "Chuva (Acumulada)", "#06b6d4")).toEqual([
-        { label: "Chuva (Acumulada)", color: "#06b6d4", points: [0.4, 0.5] },
+  describe("bucketsToTotalSeries (Chuva Acumulada — barra única, pedido do usuário, 2026-10-06)", () => {
+    it("soma o sum de TODOS os buckets em UM único ponto (sem resíduo de float: 0.4 + 0.1 = 0.5)", () => {
+      expect(bucketsToTotalSeries(rainSeriesFixture, "Chuva (Acumulada)", "#06b6d4")).toEqual([
+        { label: "Chuva (Acumulada)", color: "#06b6d4", points: [0.5] },
       ]);
     });
 
-    it("bucket com sum=null é pulado (alinhado com bucketsToPointLabels(..., 'sum')) e não zera o total", () => {
+    it("bucket com sum=null é ignorado e não zera o total", () => {
       const withGap = {
         ...rainSeriesFixture,
         buckets: [
@@ -180,13 +180,21 @@ describe("funções puras de ChartsSection", () => {
         ],
       };
 
-      expect(bucketsToCumulativeSeries(withGap, "Chuva", "#06b6d4")[0]!.points).toEqual([0.2, 0.3]);
-      expect(bucketsToPointLabels(withGap, "sum")).toEqual(["13:00", "15:00"]);
+      expect(bucketsToTotalSeries(withGap, "Chuva", "#06b6d4")[0]!.points).toEqual([0.3]);
+    });
+
+    it("período sem chuva (sum=0 em todos os buckets) é uma barra de 0 mm, não um card vazio", () => {
+      const dry = {
+        ...rainSeriesFixture,
+        buckets: [{ t: "2026-07-23T13:00:00.000Z", avg: 0, min: 0, max: 0, sum: 0 }],
+      };
+
+      expect(bucketsToTotalSeries(dry, "Chuva", "#06b6d4")[0]!.points).toEqual([0]);
     });
 
     it("sem resposta ou sem sum (métrica não-chuva) → []", () => {
-      expect(bucketsToCumulativeSeries(undefined, "Chuva", "#06b6d4")).toEqual([]);
-      expect(bucketsToCumulativeSeries(seriesFixture, "Chuva", "#06b6d4")).toEqual([]);
+      expect(bucketsToTotalSeries(undefined, "Chuva", "#06b6d4")).toEqual([]);
+      expect(bucketsToTotalSeries(seriesFixture, "Chuva", "#06b6d4")).toEqual([]);
     });
   });
 
@@ -448,7 +456,7 @@ describe("ChartsSection (integração RTL + MSW)", () => {
     expect(tooltip).toHaveTextContent("Chuva (Distribuição)0.4mm");
   });
 
-  it("Chuva (Acumulada) (pedido do usuário, 2026-10-02): soma corrida do sum, lendo a MESMA query de rain_mm da distribuição", async () => {
+  it("Chuva (Acumulada) (pedido do usuário, 2026-10-06): UMA barra com a soma dos mm do período, lendo a MESMA query de rain_mm da distribuição", async () => {
     const rainRequests: string[] = [];
     server.use(
       http.get("/api/v1/readings/series", ({ request }) => {
@@ -463,15 +471,36 @@ describe("ChartsSection (integração RTL + MSW)", () => {
 
     const card = chartCardByTitle("Chuva (Acumulada)");
     expect(
-      within(card).getByRole("img", { name: "Gráfico de linha: Chuva (Acumulada)" }),
+      within(card).getByRole("img", { name: "Gráfico de barras: Chuva (Acumulada)" }),
     ).toBeInTheDocument();
-    expect(card.querySelectorAll(".recharts-area")).toHaveLength(1);
-    expect(card.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(0);
+    expect(card.querySelectorAll(".recharts-area")).toHaveLength(0);
+    expect(card.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(1);
+    expect(within(card).queryByTestId("chart-x-labels")).not.toBeInTheDocument();
     expect(rainRequests).toHaveLength(1);
 
-    // 1º ponto da acumulada = 1º sum (0.4); o 2º seria 0.4 + 0.1 = 0.5.
+    // Total do período = 0.4 + 0.1 = 0.5 mm, rotulado com a janela ("Últimas 24h").
     const tooltip = await hoverFirstPoint(card);
-    expect(tooltip).toHaveTextContent("Chuva (Acumulada)0.4mm");
+    expect(tooltip).toHaveTextContent("Últimas 24h");
+    expect(tooltip).toHaveTextContent("Chuva (Acumulada)0.5mm");
+  });
+
+  it("Chuva (Acumulada) segue o período selecionado: 7 dias / 30 dias rotulam a janela e recalculam o total", async () => {
+    window.history.pushState(null, "", "/?range=7d");
+    server.use(
+      http.get("/api/v1/readings/series", ({ request }) => {
+        const metric = new URL(request.url).searchParams.get("metric");
+        return HttpResponse.json(metric === "rain_mm" ? rainSeriesFixture : seriesFixture);
+      }),
+    );
+
+    render(<ChartsSection />, { wrapper: createWrapper() });
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
+
+    const card = chartCardByTitle("Chuva (Acumulada)");
+    expect(card.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(1);
+    const tooltip = await hoverFirstPoint(card);
+    expect(tooltip).toHaveTextContent("Últimos 7 dias");
+    expect(tooltip).toHaveTextContent("Chuva (Acumulada)0.5mm");
   });
 
   it("período sem dados (buckets: []) mostra o EmptyState de F5 dentro de cada ChartCard vazio", async () => {

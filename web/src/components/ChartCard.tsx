@@ -235,6 +235,8 @@ export function ChartCard({
                     yAxisId={axisId(0, true)}
                     fill={`var(--color-${seriesKey(0)})`}
                     radius={4}
+                    // Uma barra só (ex. total de chuva) não pode ocupar o card inteiro.
+                    maxBarSize={96}
                     isAnimationActive={false}
                   />
                 </BarChart>
