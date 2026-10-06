@@ -207,9 +207,10 @@ function extractSeriesData(
  * `bucketsToBarSeries` abaixo) — continua somando por bucket, só desenhado
  * como linha em vez de barras. `METRIC_CHARTS`/`aggregation` decide isso;
  * as chamadas de `comboSeries` (combos) continuam com o default `"avg"`,
- * inalteradas. (Em 2026-10-02 a chuva virou 2 cards — Distribuição em barras,
- * Acumulada em linha via `bucketsToCumulativeSeries` —, então nenhum card de
- * `METRIC_CHARTS` usa mais `field="sum"` aqui; o parâmetro fica disponível.)
+ * inalteradas. (Em 2026-10-02 a chuva virou 2 cards — Distribuição e
+ * Acumulada, esta desde 2026-10-06 uma barra única via
+ * `bucketsToTotalSeries` —, então nenhum card de `METRIC_CHARTS` usa mais
+ * `field="sum"` aqui; o parâmetro fica disponível.)
  */
 export function bucketsToLineSeries(
   response: SeriesResponse | undefined,
@@ -229,14 +230,17 @@ export function bucketsToLineSeries(
 }
 
 /**
- * Soma CORRIDA do `sum` dos buckets → 1 série de linha (pedido do usuário,
- * 2026-10-02: card "Chuva (Acumulada)"). Cada ponto é o total chovido desde
- * o início do período até aquele bucket — curva monotônica, o último ponto é
- * o total do período. Buckets com `sum=null` são pulados (mesma regra de
- * `extractSeriesData`), o que mantém o alinhamento com
- * `bucketsToPointLabels(response, "sum")`.
+ * TOTAL do período: soma do `sum` de todos os buckets → 1 série com UM único
+ * ponto (pedido do usuário, 2026-10-06: card "Chuva (Acumulada)" é uma barra
+ * única com os mm chovidos nas últimas 24h/7d/30d). A janela é a da própria
+ * resposta — a API calcula `since = agora - lookbackMs` a cada requisição
+ * (`readings-service.ts`), então o total sempre é "até o momento do acesso".
+ * Buckets com `sum=null` são ignorados (mesma regra de `extractSeriesData`);
+ * se NENHUM bucket tem `sum` (sem leituras / métrica não-chuva) → `[]`, e o
+ * `ChartCard` mostra o `EmptyState`. Período sem chuva (todos `sum=0`) é uma
+ * barra de 0 mm, não um card vazio.
  */
-export function bucketsToCumulativeSeries(
+export function bucketsToTotalSeries(
   response: SeriesResponse | undefined,
   label: string,
   color: string,
@@ -246,11 +250,14 @@ export function bucketsToCumulativeSeries(
   }
 
   const { points } = extractSeriesData(response.buckets, "sum", response.bucket);
-  let total = 0;
-  // Arredonda a 2 casas a cada passo: somar floats (0.1 + 0.2...) deixaria
-  // resíduos tipo 0.30000000000000004 no tooltip.
-  const cumulative = points.map((value) => (total = Math.round((total + value) * 100) / 100));
-  return cumulative.length === 0 ? [] : [{ label, color, points: cumulative }];
+  if (points.length === 0) {
+    return [];
+  }
+
+  // Arredonda a 2 casas: somar floats (0.1 + 0.2...) deixaria resíduos tipo
+  // 0.30000000000000004 no tooltip.
+  const total = Math.round(points.reduce((acc, value) => acc + value, 0) * 100) / 100;
+  return [{ label, color, points: [total] }];
 }
 
 /** `sum` (não `avg`) de cada bucket → 1 série de barras — chuva é acumulada, não uma média (UI-07/spec.md AC3). */
@@ -357,12 +364,20 @@ interface MetricChartConfig {
    */
   aggregation?: "avg" | "sum";
   /**
-   * Soma corrida do `sum` (`bucketsToCumulativeSeries`) em vez do valor de
-   * cada bucket — card "Chuva (Acumulada)" (pedido do usuário, 2026-10-02).
-   * Exige `aggregation: "sum"` (os rótulos de tooltip usam o mesmo campo).
+   * Barra ÚNICA com o total do período (`bucketsToTotalSeries`) em vez de um
+   * ponto por bucket — card "Chuva (Acumulada)" (pedido do usuário,
+   * 2026-10-06). Exige `variant: "bar"`; o rótulo do tooltip é a janela
+   * (`TOTAL_PERIOD_LABELS`), não um horário.
    */
-  cumulative?: boolean;
+  total?: boolean;
 }
+
+/** Janela mostrada no tooltip da barra de total — o que o usuário escolheu no `PeriodSelector`. */
+const TOTAL_PERIOD_LABELS: Record<Range, string> = {
+  "24h": "Últimas 24h",
+  "7d": "Últimos 7 dias",
+  "30d": "Últimos 30 dias",
+};
 
 /**
  * Ordem/composição do grid (design.md "Layout"): Temp/Umidade, Pressão/Chuva
@@ -370,8 +385,8 @@ interface MetricChartConfig {
  *
  * Chuva em DOIS cards (pedido do usuário e do professor, 2026-10-02): o de
  * "Distribuição" é o volume de cada bucket (quando choveu e quanto em cada
- * hora/dia); o de "Acumulada" é a soma corrida (quanto choveu até ali no
- * período). Os dois leem a MESMA query de `rain_mm` — `useQueries` abaixo é
+ * hora/dia); o de "Acumulada" é UMA barra com o total do período (quanto
+ * choveu nas últimas 24h/7d/30d). Os dois leem a MESMA query de `rain_mm` — `useQueries` abaixo é
  * montado sobre `METRICS` (métricas únicas), não sobre os cards.
  */
 const METRIC_CHARTS: MetricChartConfig[] = [
@@ -411,10 +426,12 @@ const METRIC_CHARTS: MetricChartConfig[] = [
     metric: "rain_mm",
     title: "Chuva (Acumulada)",
     color: "var(--sensor-rain)",
-    variant: "line",
+    // Barra única (pedido do usuário, 2026-10-06): total de mm das últimas
+    // 24h/7d/30d contados a partir do momento do acesso.
+    variant: "bar",
     unit: "mm",
     aggregation: "sum",
-    cumulative: true,
+    total: true,
   },
   {
     metric: "uv_index",
@@ -673,11 +690,18 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
           }
 
           const field = config.aggregation ?? "avg";
-          const series = config.cumulative
-            ? bucketsToCumulativeSeries(result.data, config.title, config.color)
+          const series = config.total
+            ? bucketsToTotalSeries(result.data, config.title, config.color)
             : config.variant === "bar"
               ? bucketsToBarSeries(result.data, config.title, config.color)
               : bucketsToLineSeries(result.data, config.title, config.color, undefined, field);
+
+          // Barra de total: um único ponto, rotulado com a janela e sem
+          // rótulos de eixo X (não há "início/fim" a mostrar numa barra só).
+          const xLabels = config.total ? [] : buildXLabels(result.data);
+          const pointLabels = config.total
+            ? [TOTAL_PERIOD_LABELS[range]]
+            : bucketsToPointLabels(result.data, field);
 
           return (
             <ChartCard
@@ -685,8 +709,8 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
               title={config.title}
               variant={config.variant}
               series={series}
-              xLabels={buildXLabels(result.data)}
-              pointLabels={bucketsToPointLabels(result.data, field)}
+              xLabels={xLabels}
+              pointLabels={pointLabels}
               unit={config.unit}
             />
           );

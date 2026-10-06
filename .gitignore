@@ -42,3 +42,4 @@ firmware/include/secrets.h
 
 # Artefatos do Playwright MCP (screenshots/logs de validação local)
 .playwright-mcp/
+.dual-graph/
