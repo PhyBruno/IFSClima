@@ -46,11 +46,13 @@ export function getPeriodFromSearch(search: string): Period {
   if (range === "custom") {
     const from = params.get(FROM_PARAM);
     const to = params.get(TO_PARAM);
-    const spanMs = isIsoInstant(from) && isIsoInstant(to) ? Date.parse(to) - Date.parse(from) : -1;
     // Margem de 1 dia: `to` é o FIM do último dia (23:59:59.999), então N dias
     // de calendário somam quase N+1 dias corridos.
-    if (spanMs >= 0 && spanMs <= (DASHBOARD_MAX_RANGE_DAYS + 1) * MS_PER_DAY) {
-      return { range: "custom", from, to };
+    if (isIsoInstant(from) && isIsoInstant(to)) {
+      const spanMs = Date.parse(to) - Date.parse(from);
+      if (spanMs >= 0 && spanMs <= (DASHBOARD_MAX_RANGE_DAYS + 1) * MS_PER_DAY) {
+        return { range: "custom", from, to };
+      }
     }
   }
 
