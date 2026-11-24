@@ -1,6 +1,6 @@
 # Compose de PRODUÇÃO para `docker stack deploy` (Docker Swarm), com o `web`
 # exposto publicamente via Traefik (rede overlay externa `network_public`,
-# já provisionada no swarm) na URL `teste.centrium.api.br`.
+# já provisionada no swarm) na URL `ifsclima.jaragua.ifsc.edu.br`.
 #
 # Diferente de `docker-compose.prod.yml` (que builda localmente via
 # `build:`/`docker compose up`), este arquivo só consome as imagens já
@@ -105,14 +105,14 @@ services:
           memory: 256M
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.ifsclima.rule=Host(`teste.centrium.api.br`)"
+        - "traefik.http.routers.ifsclima.rule=Host(`ifsclima.jaragua.ifsc.edu.br`)"
         - "traefik.http.routers.ifsclima.entrypoints=websecure"
         - "traefik.http.routers.ifsclima.tls=true"
         - "traefik.http.routers.ifsclima.tls.certresolver=letsencryptresolver"
         - "traefik.http.services.ifsclima.loadbalancer.server.port=80"
         - "traefik.http.middlewares.ifsclima-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
         - "traefik.http.middlewares.ifsclima-headers.headers.customrequestheaders.X-Forwarded-Port=443"
-        - "traefik.http.middlewares.ifsclima-headers.headers.customrequestheaders.X-Forwarded-Host=teste.centrium.api.br"
+        - "traefik.http.middlewares.ifsclima-headers.headers.customrequestheaders.X-Forwarded-Host=ifsclima.jaragua.ifsc.edu.br"
         - "traefik.http.routers.ifsclima.middlewares=ifsclima-headers"
       restart_policy:
         condition: on-failure
