@@ -41,11 +41,11 @@ describe("exportDashboardToPdf", () => {
     const cachedLatest = { ...latestFixture, temperature_c: 99 };
     queryClient.setQueryData(["readings", "latest"], cachedLatest);
 
-    await exportDashboardToPdf({ queryClient, range: "7d", generatedAt: GENERATED_AT });
+    await exportDashboardToPdf({ queryClient, period: { range: "7d" }, generatedAt: GENERATED_AT });
 
     const { props, options } = lastReport<DashboardReportProps>();
     expect(props.latest).toEqual(cachedLatest);
-    expect(props.range).toBe("7d");
+    expect(props.period).toEqual({ range: "7d" });
     expect(Object.keys(props.series)).toHaveLength(5);
     expect(props.series.temperature_c).toEqual(seriesFixture);
     expect(options.fileName).toBe("ifsclima-painel-7d-2026-07-23.pdf");
@@ -61,7 +61,11 @@ describe("exportDashboardToPdf", () => {
     );
     const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } });
 
-    await exportDashboardToPdf({ queryClient, range: "24h", generatedAt: GENERATED_AT });
+    await exportDashboardToPdf({
+      queryClient,
+      period: { range: "24h" },
+      generatedAt: GENERATED_AT,
+    });
 
     const { props } = lastReport<DashboardReportProps>();
     expect(props.series.uv_index).toBeUndefined();
@@ -76,7 +80,7 @@ describe("exportDashboardToPdf", () => {
     );
     const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } });
 
-    await expect(exportDashboardToPdf({ queryClient, range: "24h" })).rejects.toThrow();
+    await expect(exportDashboardToPdf({ queryClient, period: { range: "24h" } })).rejects.toThrow();
     expect(renderReportToPdf).not.toHaveBeenCalled();
   });
 });

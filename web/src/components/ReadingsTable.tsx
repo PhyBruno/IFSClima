@@ -12,6 +12,7 @@ import {
 import type { HistoryReading } from "../api-client";
 import { EmptyState } from "./EmptyState";
 import { formatDayMonth, formatTime } from "../utils/formatTime";
+import { formatDecimal } from "../utils/formatNumber";
 import { cn } from "@/lib/utils";
 
 /**
@@ -56,9 +57,9 @@ export interface ReadingsTableProps {
   className?: string;
 }
 
-/** `value` → texto de célula; `null`/`undefined` vira "—" (HIST-03). */
+/** `value` → texto de célula pt-BR (`24,7`); `null`/`undefined` vira "—" (HIST-03). */
 function formatCell(value: number | null): string {
-  return value === null ? "—" : String(value);
+  return value === null ? "—" : formatDecimal(value, 3);
 }
 
 const COLUMNS: { key: Exclude<keyof HistoryReading, "timestamp">; header: string }[] = [

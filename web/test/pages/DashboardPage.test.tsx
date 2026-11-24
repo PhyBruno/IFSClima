@@ -76,15 +76,13 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/média histórica/i)).toBeInTheDocument();
   });
 
-  it("compõe SensorGrid (5 StatCards) e ChartsSection (6 ChartCards de métrica única + 2 combos + 2 dispersões + PeriodSelector)", async () => {
+  it("compõe SensorGrid (5 StatCards) e ChartsSection (6 cards de métrica única + 3 pares de comparativos em linhas e pontos + seletor de período)", async () => {
     renderPage();
 
     await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
-    // 5 métrica única (`METRIC_CHARTS`) + 2 combos (`COMBO_CHARTS` — Temp e Umidade, Temp e Pressão).
-    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(8));
-    // + 2 dispersões (`SCATTER_CHARTS` — Temp × Umidade, Temp × Pressão).
-    expect(screen.getAllByTestId("scatterchartcard")).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(12));
     expect(screen.getByRole("button", { name: "Últimas 24h" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Personalizado" })).toBeInTheDocument();
   });
 
   it("navegação: Sidebar (desktop) e BottomNav (mobile) presentes, Dashboard marcado como página atual", () => {
@@ -233,7 +231,7 @@ describe("DashboardPage", () => {
 
         await waitFor(() => expect(exportDashboardToPdf).toHaveBeenCalledTimes(1));
         const call = vi.mocked(exportDashboardToPdf).mock.calls[0]![0];
-        expect(call.range).toBe("7d");
+        expect(call.period).toEqual({ range: "7d" });
         expect(call.queryClient.getQueryData(["readings", "latest"])).toEqual(latestFixture);
       } finally {
         window.history.replaceState(null, "", "/");

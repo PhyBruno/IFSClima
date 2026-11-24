@@ -13,8 +13,14 @@
 /** Whitelist de métricas de `GET /readings/series` (espelha `api/src/schemas/readings.ts`). */
 export type Metric = "temperature_c" | "humidity_pct" | "pressure_hpa" | "rain_mm" | "uv_index";
 
-/** Períodos suportados pela série agregada. */
+/** Períodos pré-definidos da série agregada. */
 export type Range = "24h" | "7d" | "30d";
+
+/**
+ * Janela de uma série: período pré-definido (relativo a "agora") OU intervalo
+ * explícito em ISO 8601 UTC (seletor "Personalizado" do painel).
+ */
+export type SeriesWindow = { range: Range } | { from: string; to: string };
 
 /** Granularidade do bucket retornado pelo servidor (derivada de `range`). */
 export type BucketUnit = "hour" | "day";
@@ -43,8 +49,12 @@ export interface SeriesBucket {
 /** Payload de `GET /api/v1/readings/series`. */
 export interface SeriesResponse {
   metric: Metric;
-  range: Range;
+  /** Período pedido, ou `"custom"` quando a janela veio de `from`/`to`. */
+  range: Range | "custom";
   bucket: BucketUnit;
+  /** Janela efetivamente consultada (ISO 8601 UTC) — domínio do eixo de tempo dos gráficos. */
+  from: string;
+  to: string;
   buckets: SeriesBucket[];
 }
 
@@ -119,9 +129,15 @@ export function getLatest(): Promise<LatestReading> {
   return request<LatestReading>("/api/v1/readings/latest");
 }
 
-/** `GET /api/v1/readings/series?metric=&range=` — histórico agregado (UI-05..UI-07). */
-export function getSeries(metric: Metric, range: Range): Promise<SeriesResponse> {
-  const query = new URLSearchParams({ metric, range });
+/** `GET /api/v1/readings/series?metric=&range=` (ou `&from=&to=`) — histórico agregado (UI-05..UI-07). */
+export function getSeries(metric: Metric, window: SeriesWindow): Promise<SeriesResponse> {
+  const query = new URLSearchParams({ metric });
+  if ("range" in window) {
+    query.set("range", window.range);
+  } else {
+    query.set("from", window.from);
+    query.set("to", window.to);
+  }
 
   return request<SeriesResponse>(`/api/v1/readings/series?${query.toString()}`);
 }
@@ -181,4 +197,59 @@ export function buildExportUrl(params: ExportParams): string {
   });
 
   return `${API_BASE_URL}/api/v1/readings/export?${query.toString()}`;
+}
+
+/** Maior `page_size` aceito por `GET /api/v1/readings` (espelha `MAX_PAGE_SIZE` de `api/src/schemas/history.ts`). */
+export const HISTORY_MAX_PAGE_SIZE = 500;
+
+/** Quantas páginas `fetchAllReadings` busca ao mesmo tempo. */
+const FETCH_ALL_CONCURRENCY = 4;
+
+/** Todas as leituras de um intervalo, em ordem cronológica crescente. */
+export interface AllReadingsResult {
+  /** Intervalo resolvido pelo servidor. */
+  from: string;
+  to: string;
+  total: number;
+  readings: HistoryReading[];
+}
+
+/**
+ * TODAS as leituras brutas de `[from, to]`, em ordem cronológica — usada
+ * pelos gráficos de pontos do painel (cada ponto é uma leitura real, decisão
+ * do usuário, 2026-11-24) e pelo PDF do Histórico (tabela completa).
+ *
+ * A primeira página revela o `total`; as demais são buscadas em paralelo, no
+ * máximo `FETCH_ALL_CONCURRENCY` por vez (um ano a cada 15 min dá ~70
+ * páginas de 500).
+ */
+export async function fetchAllReadings(params: {
+  from?: string;
+  to?: string;
+}): Promise<AllReadingsResult> {
+  const fetchPage = (page: number) =>
+    getHistory({
+      from: params.from,
+      to: params.to,
+      page,
+      pageSize: HISTORY_MAX_PAGE_SIZE,
+      order: "asc",
+    });
+
+  const first = await fetchPage(1);
+  const pageCount = Math.ceil(first.total / HISTORY_MAX_PAGE_SIZE);
+  const pages: HistoryReading[][] = new Array<HistoryReading[]>(Math.max(pageCount, 1));
+  pages[0] = first.readings;
+
+  let next = 2;
+  async function worker(): Promise<void> {
+    while (next <= pageCount) {
+      const page = next;
+      next += 1;
+      pages[page - 1] = (await fetchPage(page)).readings;
+    }
+  }
+  await Promise.all(Array.from({ length: FETCH_ALL_CONCURRENCY }, worker));
+
+  return { from: first.from, to: first.to, total: first.total, readings: pages.flat() };
 }

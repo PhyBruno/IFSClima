@@ -41,7 +41,7 @@ describe("DashboardReport", () => {
       <DashboardReport
         latest={latestFixture}
         series={series}
-        range="24h"
+        period={{ range: "24h" }}
         generatedAt={GENERATED_AT}
       />,
     );
@@ -69,7 +69,12 @@ describe("DashboardReport", () => {
 
   it("sem leitura atual os cards mostram 'Sem sinal' e séries ausentes mostram 'Sem dados no período'", () => {
     render(
-      <DashboardReport latest={undefined} series={{}} range="30d" generatedAt={GENERATED_AT} />,
+      <DashboardReport
+        latest={undefined}
+        series={{}}
+        period={{ range: "30d" }}
+        generatedAt={GENERATED_AT}
+      />,
     );
 
     expect(screen.getAllByText("Sem sinal")).toHaveLength(5);

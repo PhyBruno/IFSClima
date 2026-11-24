@@ -104,6 +104,26 @@ describe("seriesQuerySchema (T4.1 — READ-07)", () => {
     ).toBe(false);
   });
 
+  it("aceita 3 meses (92 dias de calendário, até o fim do último dia)", () => {
+    expect(
+      seriesQuerySchema.safeParse({
+        metric: "temperature_c",
+        from: "2026-08-25T03:00:00.000Z",
+        to: "2026-11-25T02:59:59.999Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejeita intervalo personalizado acima de 3 meses", () => {
+    expect(
+      seriesQuerySchema.safeParse({
+        metric: "temperature_c",
+        from: "2026-07-01T03:00:00.000Z",
+        to: "2026-11-25T02:59:59.999Z",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejeita intervalo maior que 366 dias", () => {
     expect(
       seriesQuerySchema.safeParse({

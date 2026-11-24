@@ -4,10 +4,16 @@ import {
   type UseQueryOptions,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { getSeries, type Metric, type Range, type SeriesResponse } from "../api-client";
+import { getSeries, type Metric, type SeriesResponse, type SeriesWindow } from "../api-client";
 
-export function seriesQueryKey(metric: Metric, range: Range) {
-  return ["readings", "series", metric, range] as const;
+/** Chave de cache: o preset (`"24h"`…) ou o par `from`/`to` do intervalo personalizado. */
+export function seriesQueryKey(metric: Metric, window: SeriesWindow) {
+  return [
+    "readings",
+    "series",
+    metric,
+    "range" in window ? window.range : `${window.from}/${window.to}`,
+  ] as const;
 }
 
 /**
@@ -23,11 +29,11 @@ export function seriesQueryKey(metric: Metric, range: Range) {
  */
 export function seriesQueryOptions(
   metric: Metric,
-  range: Range,
+  window: SeriesWindow,
 ): UseQueryOptions<SeriesResponse, Error, SeriesResponse, ReturnType<typeof seriesQueryKey>> {
   return {
-    queryKey: seriesQueryKey(metric, range),
-    queryFn: () => getSeries(metric, range),
+    queryKey: seriesQueryKey(metric, window),
+    queryFn: () => getSeries(metric, window),
     placeholderData: keepPreviousData,
   };
 }
@@ -38,6 +44,6 @@ export function seriesQueryOptions(
  * gráfico anterior visível enquanto a nova query carrega, em vez de piscar
  * para um estado vazio/loading — nunca tela branca, UI-06/UI-10).
  */
-export function useSeries(metric: Metric, range: Range): UseQueryResult<SeriesResponse> {
-  return useQuery(seriesQueryOptions(metric, range));
+export function useSeries(metric: Metric, window: SeriesWindow): UseQueryResult<SeriesResponse> {
+  return useQuery(seriesQueryOptions(metric, window));
 }

@@ -18,11 +18,11 @@ describe("ReadingsTable", () => {
     const rows = screen.getAllByRole("row");
     // 1 cabeçalho + 2 leituras.
     expect(rows).toHaveLength(3);
-    expect(screen.getByText("24.7")).toBeInTheDocument();
-    expect(screen.getByText("61.2")).toBeInTheDocument();
-    expect(screen.getByText("1013.4")).toBeInTheDocument();
-    expect(screen.getByText("0.4")).toBeInTheDocument();
-    expect(screen.getByText("5.3")).toBeInTheDocument();
+    expect(screen.getByText("24,7")).toBeInTheDocument();
+    expect(screen.getByText("61,2")).toBeInTheDocument();
+    expect(screen.getByText("1013,4")).toBeInTheDocument();
+    expect(screen.getByText("0,4")).toBeInTheDocument();
+    expect(screen.getByText("5,3")).toBeInTheDocument();
   });
 
   it("correção (feedback do usuário, 2026-08-16): cabeçalho mostra unidades com a caixa correta (hPa, mm), sem uppercase forçado", () => {

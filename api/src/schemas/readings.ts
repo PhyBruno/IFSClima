@@ -25,6 +25,15 @@ export type Range = z.infer<typeof rangeSchema>;
 export type SeriesWindow = { range: Range } | { from: Date; to: Date };
 
 /**
+ * Teto do intervalo personalizado da série: 3 meses (pedido do usuário,
+ * 2026-11-24). +1 dia de folga porque o painel envia `to` como o FIM do
+ * último dia local (23:59:59.999) — 92 dias de calendário somam quase 93
+ * dias corridos.
+ */
+export const SERIES_MAX_RANGE_DAYS = 92;
+const SERIES_MAX_RANGE_MS = (SERIES_MAX_RANGE_DAYS + 1) * 24 * 60 * 60 * 1000;
+
+/**
  * Contrato de query de `GET /api/v1/readings/series`: `metric` + (`range` OU
  * `from`+`to`). Os dois modos são exclusivos. `from`/`to` seguem a MESMA
  * validação do histórico (`checkDateRange`: `from ≤ to`, no máximo
@@ -61,6 +70,16 @@ export const seriesQuerySchema = z
     }
 
     checkDateRange(value, ctx);
+
+    const spanMs =
+      new Date(value.to as string).getTime() - new Date(value.from as string).getTime();
+    if (spanMs > SERIES_MAX_RANGE_MS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["to"],
+        message: `intervalo da série não pode exceder ${SERIES_MAX_RANGE_DAYS} dias (3 meses)`,
+      });
+    }
   })
   .transform((value): { metric: Metric; window: SeriesWindow } => ({
     metric: value.metric,

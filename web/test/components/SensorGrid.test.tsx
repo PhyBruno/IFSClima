@@ -40,20 +40,20 @@ describe("SensorGrid", () => {
     await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
 
     expect(screen.getByText("Temperatura")).toBeInTheDocument();
-    expect(screen.getByText("24.7")).toBeInTheDocument();
+    expect(screen.getByText("24,7")).toBeInTheDocument();
     expect(screen.getByText("°C")).toBeInTheDocument();
 
     expect(screen.getByText("Umidade")).toBeInTheDocument();
-    expect(screen.getByText("61.2")).toBeInTheDocument();
+    expect(screen.getByText("61,2")).toBeInTheDocument();
 
     expect(screen.getByText("Pressão")).toBeInTheDocument();
-    expect(screen.getByText("1013.4")).toBeInTheDocument();
+    expect(screen.getByText("1013,4")).toBeInTheDocument();
 
     expect(screen.getByText("Chuva")).toBeInTheDocument();
-    expect(screen.getByText("0.4")).toBeInTheDocument();
+    expect(screen.getByText("0,4")).toBeInTheDocument();
 
     expect(screen.getByText("Índice UV")).toBeInTheDocument();
-    expect(screen.getByText("5.3")).toBeInTheDocument();
+    expect(screen.getByText("5,3")).toBeInTheDocument();
   });
 
   it("UI-02: sensor com valor null delega ao StatCard (F5) — mostra 'Sem sinal', nunca NaN", async () => {
@@ -70,7 +70,7 @@ describe("SensorGrid", () => {
     expect(screen.getByText("Sem sinal")).toBeInTheDocument();
     expect(screen.queryByText("NaN")).not.toBeInTheDocument();
     // Os demais 4 sensores continuam com dado normal.
-    expect(screen.getByText("24.7")).toBeInTheDocument();
+    expect(screen.getByText("24,7")).toBeInTheDocument();
   });
 
   it("UI-03 (revisado 2026-07-24): não mostra mais 'atualizado há X' — legenda movida pro rodapé de DashboardPage", async () => {
@@ -117,7 +117,7 @@ describe("SensorGrid", () => {
   it("T6.4/UI-10: erro de rede numa atualização (polling) mantém os cards com o último dado e mostra o banner 'reconectando'", async () => {
     const { client } = renderGrid();
     await waitFor(() => expect(screen.getAllByTestId("statcard")).toHaveLength(5));
-    expect(screen.getByText("24.7")).toBeInTheDocument();
+    expect(screen.getByText("24,7")).toBeInTheDocument();
 
     server.use(http.get("/api/v1/readings/latest", () => new HttpResponse(null, { status: 500 })));
     // Simula o próximo ciclo de polling falhando, sem esperar os 60s reais.
@@ -127,7 +127,7 @@ describe("SensorGrid", () => {
     expect(screen.getByText(/reconectando/i)).toBeInTheDocument();
     // Nunca tela branca: os 5 cards e o valor antigo continuam visíveis.
     expect(screen.getAllByTestId("statcard")).toHaveLength(5);
-    expect(screen.getByText("24.7")).toBeInTheDocument();
+    expect(screen.getByText("24,7")).toBeInTheDocument();
   });
 
   it("T6.4/UI-10 (revisado 2026-07-24): falha já na primeira busca (sem dado em cache) mostra os 5 cards em 'sem sinal' — não um banner/card de erro dedicado", async () => {

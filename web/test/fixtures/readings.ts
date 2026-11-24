@@ -28,6 +28,8 @@ export const seriesFixture: SeriesResponse = {
   metric: "temperature_c",
   range: "24h",
   bucket: "hour",
+  from: "2026-07-22T15:00:00.000Z",
+  to: "2026-07-23T15:00:00.000Z",
   buckets: [
     { t: "2026-07-23T13:00:00.000Z", avg: 24.1, min: 23.6, max: 24.8, sum: null },
     { t: "2026-07-23T14:00:00.000Z", avg: 24.7, min: 24.0, max: 25.1, sum: null },
@@ -39,6 +41,8 @@ export const rainSeriesFixture: SeriesResponse = {
   metric: "rain_mm",
   range: "24h",
   bucket: "hour",
+  from: "2026-07-22T15:00:00.000Z",
+  to: "2026-07-23T15:00:00.000Z",
   buckets: [
     { t: "2026-07-23T13:00:00.000Z", avg: 0.1, min: 0, max: 0.3, sum: 0.4 },
     { t: "2026-07-23T14:00:00.000Z", avg: 0.05, min: 0, max: 0.1, sum: 0.1 },
@@ -50,6 +54,8 @@ export const emptySeriesFixture: SeriesResponse = {
   metric: "temperature_c",
   range: "30d",
   bucket: "day",
+  from: "2026-06-23T15:00:00.000Z",
+  to: "2026-07-23T15:00:00.000Z",
   buckets: [],
 };
 

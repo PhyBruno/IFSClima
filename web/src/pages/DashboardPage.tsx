@@ -4,7 +4,8 @@ import { useLatest } from "../hooks/useLatest";
 import { AppShell } from "../components/AppShell";
 import { StatusPill } from "../components/StatusPill";
 import { SensorGrid } from "../components/SensorGrid";
-import { ChartsSection, getRangeFromSearch } from "../components/ChartsSection";
+import { ChartsSection } from "../components/ChartsSection";
+import { getPeriodFromSearch } from "../utils/period";
 import { ExportPdfButton } from "../components/ExportPdfButton";
 import { formatTime, formatDayMonth } from "../utils/formatTime";
 import { formatAge } from "../utils/formatAge";
@@ -74,7 +75,7 @@ const STATION_OFFLINE_THRESHOLD_SECONDS = 24 * 60 * 60;
  * screenshot da tela (`pdf/exportDashboardPdf.ts`: layout claro em A4 com
  * cards, tabela-resumo e gráficos). Os dados vêm do cache do React Query
  * (`queryClient`, os mesmos de `SensorGrid`/`ChartsSection`) para o
- * período ativo em `?range=`. `import()` dinâmico: `html2canvas-pro` e
+ * período ativo na URL (`?range=`, ou `&from=&to=` no personalizado). `import()` dinâmico: `html2canvas-pro` e
  * `jsPDF` juntas passam de 150kB minificados, então só quem clica paga o
  * download desse chunk.
  *
@@ -111,7 +112,10 @@ export function DashboardPage() {
 
   async function handleExportPdf() {
     const { exportDashboardToPdf } = await import("../pdf/exportDashboardPdf");
-    await exportDashboardToPdf({ queryClient, range: getRangeFromSearch(window.location.search) });
+    await exportDashboardToPdf({
+      queryClient,
+      period: getPeriodFromSearch(window.location.search),
+    });
   }
 
   return (

@@ -1,12 +1,32 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import {
   ChartCard,
+  axisLayout,
   barDomain,
+  boundedDomain,
   buildRows,
   formatValue,
   paddedDomain,
 } from "../../src/components/ChartCard";
+
+/** Horários deterministas: o processo roda em UTC (ver `beforeAll`). */
+let originalTZ: string | undefined;
+beforeAll(() => {
+  originalTZ = process.env.TZ;
+  process.env.TZ = "UTC";
+  return () => {
+    process.env.TZ = originalTZ;
+  };
+});
+
+const START = Date.UTC(2026, 6, 23, 14, 0, 0);
+const HOUR = 60 * 60 * 1000;
+
+/** Valores → pontos de hora em hora a partir de 23/07 14:00. */
+function pts(values: number[]) {
+  return values.map((v, index) => ({ t: START + index * HOUR, v }));
+}
 
 /**
  * O jsdom não tem layout: o `ResponsiveContainer` do Recharts lê
@@ -48,9 +68,9 @@ function yAxisTicks(container: HTMLElement): string[][] {
   );
 }
 
-/** "24.6°C" → 24.6 (tira a unidade do tick). */
+/** "24,6°C" → 24.6 (tira a unidade do tick, vírgula decimal pt-BR). */
 function tickNumber(tick: string): number {
-  return Number.parseFloat(tick);
+  return Number.parseFloat(tick.replace(",", "."));
 }
 
 /** Área de plotagem (sem margens/eixos) — o `clipPath` que o Recharts aplica às séries. */
@@ -79,55 +99,119 @@ async function hoverAt(container: HTMLElement, clientX: number): Promise<HTMLEle
 
 describe("helpers puros de ChartCard", () => {
   describe("formatValue", () => {
-    it("arredonda para 1 casa decimal", () => {
-      expect(formatValue(24.65)).toBe("24.7");
-      expect(formatValue(1013.24)).toBe("1013.2");
+    it("arredonda para 1 casa decimal, com vírgula (pt-BR) e sem separador de milhar", () => {
+      expect(formatValue(24.65)).toBe("24,7");
+      expect(formatValue(1013.24)).toBe("1013,2");
     });
 
-    it("omite o '.0' quando o valor arredondado é inteiro", () => {
+    it("omite o ',0' quando o valor arredondado é inteiro", () => {
       expect(formatValue(20)).toBe("20");
       expect(formatValue(19.96)).toBe("20");
     });
   });
 
-  describe("buildRows", () => {
-    it("alinha as séries por índice, uma chave (s0, s1…) por série, com o rótulo de cada ponto", () => {
+  describe("buildRows (linhas mescladas por TEMPO, não por índice)", () => {
+    it("uma linha por instante, com s0/s1 de cada série e o rótulo do instante original", () => {
       const rows = buildRows(
         [
-          { label: "Temperatura", color: "#f97316", points: [20, 24] },
-          { label: "Umidade", color: "#0ea5e9", points: [60, 65] },
+          { label: "Temperatura", color: "#f97316", points: pts([20, 24]) },
+          { label: "Umidade", color: "#0ea5e9", points: pts([60, 65]) },
         ],
-        ["14:00", "15:00"],
+        { granularity: "raw" },
       );
 
       expect(rows).toEqual([
-        { label: "14:00", s0: 20, s1: 60 },
-        { label: "15:00", s0: 24, s1: 65 },
+        { t: START, label: "23/07 14:00", s0: 20, s1: 60 },
+        { t: START + HOUR, label: "23/07 15:00", s0: 24, s1: 65 },
       ]);
     });
 
-    it("sem pointLabels, o rótulo cai na posição 1-based do ponto", () => {
-      const rows = buildRows([{ label: "Umidade", color: "#0ea5e9", points: [60, 61] }], undefined);
+    it("bucket horário é posicionado no CENTRO da hora, com o rótulo do início dela", () => {
+      const rows = buildRows([{ label: "T", color: "#f97316", points: pts([20]) }], {
+        granularity: "hour",
+      });
 
-      expect(rows.map((row) => row.label)).toEqual(["1", "2"]);
+      expect(rows).toEqual([{ t: START + HOUR / 2, label: "23/07 14:00", s0: 20 }]);
     });
 
-    it("série mais curta fica sem valor (undefined) nos índices que não tem — não desloca as demais", () => {
+    it("série com buraco nos instantes da outra não desloca nada: cada valor fica no seu tempo", () => {
       const rows = buildRows(
         [
-          { label: "Curta", color: "#f97316", points: [1] },
-          { label: "Longa", color: "#0ea5e9", points: [1, 2, 3] },
+          { label: "Curta", color: "#f97316", points: [{ t: START + 2 * HOUR, v: 1 }] },
+          { label: "Longa", color: "#0ea5e9", points: pts([1, 2, 3]) },
         ],
-        undefined,
+        { granularity: "raw" },
       );
 
       expect(rows).toHaveLength(3);
-      expect(rows[2]).toEqual({ label: "3", s0: undefined, s1: 3 });
+      expect(rows[0]).not.toHaveProperty("s0");
+      expect(rows[2]).toMatchObject({ s0: 1, s1: 3 });
+    });
+
+    it("gaps=true: intervalo maior que 1,5 bucket entre dois pontos ganha um null (o traço é interrompido)", () => {
+      const rows = buildRows(
+        [
+          {
+            label: "T",
+            color: "#f97316",
+            points: [
+              { t: START, v: 20 },
+              { t: START + HOUR, v: 21 },
+              { t: START + 5 * HOUR, v: 22 },
+            ],
+          },
+        ],
+        { granularity: "hour", gaps: true },
+      );
+
+      expect(rows.map((row) => row.s0)).toEqual([20, 21, null, 22]);
     });
 
     it("séries sem pontos produzem zero linhas", () => {
-      expect(buildRows([], undefined)).toEqual([]);
-      expect(buildRows([{ label: "T", color: "#f97316", points: [] }], undefined)).toEqual([]);
+      expect(buildRows([], { granularity: "raw" })).toEqual([]);
+      expect(
+        buildRows([{ label: "T", color: "#f97316", points: [] }], { granularity: "raw" }),
+      ).toEqual([]);
+    });
+  });
+
+  describe("axisLayout (eixo Y legível)", () => {
+    it("pressão (~1010 hPa): eixo mais largo que o de temperatura, para o rótulo não ser cortado", () => {
+      const pressure = axisLayout(
+        { label: "P", color: "#0d9488", points: pts([1007.7, 1013.7]) },
+        "hPa",
+      );
+      const temperature = axisLayout(
+        { label: "T", color: "#f97316", points: pts([18.2, 24.6]) },
+        "°C",
+      );
+      expect(pressure.width).toBeGreaterThan(temperature.width);
+      expect(pressure.width).toBeGreaterThanOrEqual(9 * 6);
+    });
+
+    it("amplitude ≥ 10 dispensa casas decimais nos ticks", () => {
+      expect(axisLayout({ label: "U", color: "#0ea5e9", points: pts([40, 100]) }, "%").digits).toBe(
+        0,
+      );
+      expect(axisLayout({ label: "T", color: "#f97316", points: pts([20, 24]) }, "°C").digits).toBe(
+        1,
+      );
+    });
+  });
+
+  describe("boundedDomain (limites físicos — revisão de 2026-11-24)", () => {
+    it("umidade perto de 100% não ganha respiro acima de 100", () => {
+      const [, max] = boundedDomain([40, 100], { min: 0, max: 100 });
+      expect(max).toBe(100);
+    });
+
+    it("sem limites, é o mesmo respiro de paddedDomain", () => {
+      expect(boundedDomain([10, 50], undefined)).toEqual(paddedDomain([10, 50]));
+    });
+
+    it("grandeza não negativa (UV, chuva) nunca desce abaixo de 0", () => {
+      const [min] = boundedDomain([0, 5], { min: 0 });
+      expect(min).toBe(0);
     });
   });
 
@@ -166,8 +250,8 @@ describe("ChartCard", () => {
           title="Temperatura & Umidade — últimas 24h"
           variant="line"
           series={[
-            { label: "Temperatura", color: "#f97316", points: [20, 22, 21, 24] },
-            { label: "Umidade", color: "#0ea5e9", points: [60, 58, 62, 61] },
+            { label: "Temperatura", color: "#f97316", points: pts([20, 22, 21, 24]) },
+            { label: "Umidade", color: "#0ea5e9", points: pts([60, 58, 62, 61]) },
           ]}
         />,
       );
@@ -187,8 +271,8 @@ describe("ChartCard", () => {
           title="Temp & Umid"
           variant="line"
           series={[
-            { label: "Temperatura", color: "#f97316", points: [1, 2] },
-            { label: "Umidade", color: "#0ea5e9", points: [3, 4] },
+            { label: "Temperatura", color: "#f97316", points: pts([1, 2]) },
+            { label: "Umidade", color: "#0ea5e9", points: pts([3, 4]) },
           ]}
         />,
       );
@@ -203,8 +287,8 @@ describe("ChartCard", () => {
           title="Temp & Umid"
           variant="line"
           series={[
-            { label: "Temperatura", color: "#f97316", points: [20, 22, 21, 24] },
-            { label: "Umidade", color: "#0ea5e9", points: [60, 58, 62, 61] },
+            { label: "Temperatura", color: "#f97316", points: pts([20, 22, 21, 24]) },
+            { label: "Umidade", color: "#0ea5e9", points: pts([60, 58, 62, 61]) },
           ]}
         />,
       );
@@ -240,8 +324,8 @@ describe("ChartCard", () => {
           title="Chart"
           variant="line"
           series={[
-            { label: "Curta", color: "#f97316", points: [1] },
-            { label: "Longa", color: "#0ea5e9", points: [1, 2, 3] },
+            { label: "Curta", color: "#f97316", points: pts([1]) },
+            { label: "Longa", color: "#0ea5e9", points: pts([1, 2, 3]) },
           ]}
         />,
       );
@@ -257,8 +341,7 @@ describe("ChartCard", () => {
           title="Temperatura"
           variant="line"
           unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [24.65] }]}
-          pointLabels={["04/08"]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([24.65]) }]}
         />,
       );
 
@@ -266,8 +349,8 @@ describe("ChartCard", () => {
       expect(container.querySelectorAll(".recharts-dot")).toHaveLength(1);
 
       const tooltip = await hoverAt(container, 180);
-      expect(tooltip).toHaveTextContent("04/08");
-      expect(tooltip).toHaveTextContent("24.7°C");
+      expect(tooltip).toHaveTextContent("23/07 14:00");
+      expect(tooltip).toHaveTextContent("24,7°C");
     });
 
     it("série constante (min===max) não quebra a curva e o eixo ganha ±1 de respiro", () => {
@@ -276,7 +359,7 @@ describe("ChartCard", () => {
           title="Chart"
           variant="line"
           unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 20, 20] }]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([20, 20, 20]) }]}
         />,
       );
 
@@ -285,31 +368,123 @@ describe("ChartCard", () => {
       expect(yAxisTicks(container)).toEqual([["19°C", "20°C", "21°C"]]);
     });
 
-    it("renderiza xLabels abaixo do gráfico quando fornecido", () => {
-      render(
+    it("eixo X é tempo: os rótulos são horários reais e o domínio é a janela recebida", () => {
+      const { container } = render(
         <ChartCard
           title="Chart"
           variant="line"
-          series={[{ label: "Temperatura", color: "#f97316", points: [1, 2, 3] }]}
-          xLabels={["07:00", "14:00", "21:00"]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([1, 2, 3]) }]}
+          domain={[START - 2 * HOUR, START + 22 * HOUR]}
         />,
       );
 
-      const labels = screen.getByTestId("chart-x-labels");
-      expect(labels).toHaveTextContent("07:00");
-      expect(labels).toHaveTextContent("21:00");
+      const ticks = Array.from(
+        container.querySelectorAll(".recharts-xAxis-tick-labels text"),
+        (text) => text.textContent,
+      );
+      expect(ticks.length).toBeGreaterThan(1);
+      ticks.forEach((tick) => expect(tick).toMatch(/^\d{2}:\d{2}$/));
     });
 
-    it("sem xLabels, não renderiza a faixa de rótulos do eixo X", () => {
-      render(
+    it("divisores de dia só aparecem acima de 2 dias (um por meia-noite local)", () => {
+      const { rerender } = render(
         <ChartCard
           title="Chart"
           variant="line"
-          series={[{ label: "Temperatura", color: "#f97316", points: [1, 2, 3] }]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([1, 2, 3]) }]}
+          domain={[START, START + 24 * HOUR]}
+        />,
+      );
+      expect(screen.getByTestId("chart-svg")).toHaveAttribute("data-day-dividers", "0");
+
+      rerender(
+        <ChartCard
+          title="Chart"
+          variant="line"
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([1, 2, 3]) }]}
+          domain={[START, START + 7 * 24 * HOUR]}
+        />,
+      );
+      expect(screen.getByTestId("chart-svg")).toHaveAttribute("data-day-dividers", "7");
+    });
+
+    it("umidade com limites [0, 100]: o eixo nunca passa de 100%", () => {
+      const { container } = render(
+        <ChartCard
+          title="Umidade"
+          variant="line"
+          unit="%"
+          series={[
+            {
+              label: "Umidade",
+              color: "#0ea5e9",
+              points: pts([40, 100, 100]),
+              bounds: { min: 0, max: 100 },
+            },
+          ]}
         />,
       );
 
-      expect(screen.queryByTestId("chart-x-labels")).not.toBeInTheDocument();
+      const [ticks] = yAxisTicks(container);
+      expect(Math.max(...ticks!.map(tickNumber))).toBeLessThanOrEqual(100);
+    });
+  });
+
+  describe("variant='dots' (leituras brutas ao longo do tempo)", () => {
+    it("desenha um ponto por valor, sem área, com legenda por série", () => {
+      const { container } = render(
+        <ChartCard
+          title="Temperatura e Umidade — leituras"
+          variant="dots"
+          series={[
+            { label: "Temperatura", color: "#f97316", points: pts([20, 22, 21]), unit: "°C" },
+            { label: "Umidade", color: "#0ea5e9", points: pts([60, 58]), unit: "%" },
+          ]}
+        />,
+      );
+
+      expect(
+        screen.getByRole("img", { name: "Gráfico de pontos: Temperatura e Umidade — leituras" }),
+      ).toBeInTheDocument();
+      expect(container.querySelectorAll(".recharts-area")).toHaveLength(0);
+      expect(container.querySelectorAll(".recharts-scatter-symbol")).toHaveLength(5);
+      const items = within(screen.getByRole("list")).getAllByRole("listitem");
+      expect(items.map((item) => item.textContent)).toEqual(["Temperatura", "Umidade"]);
+      expect(yAxisTicks(container)).toHaveLength(2);
+    });
+
+    it("mostra a descrição sob o título", () => {
+      render(
+        <ChartCard
+          title="Leituras"
+          description="1 a cada 3 leituras da estação"
+          variant="dots"
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([20, 22]) }]}
+        />,
+      );
+
+      expect(screen.getByText("1 a cada 3 leituras da estação")).toBeInTheDocument();
+    });
+  });
+
+  describe("variant='total' (uma barra com o total do período)", () => {
+    it("desenha uma barra e o tooltip mostra a janela e o total", async () => {
+      const { container } = render(
+        <ChartCard
+          title="Chuva (Acumulada)"
+          variant="total"
+          unit="mm"
+          totalLabel="Últimas 24h"
+          series={[{ label: "Chuva", color: "#06b6d4", points: [{ t: START, v: 12.5 }] }]}
+        />,
+      );
+
+      expect(container.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(1);
+      // O total vem escrito no cabeçalho (um período seco, 0 mm, não teria barra visível).
+      expect(screen.getByTestId("chart-total")).toHaveTextContent("12,5mm");
+      const tooltip = await hoverAt(container, 180);
+      expect(tooltip).toHaveTextContent("Últimas 24h");
+      expect(tooltip).toHaveTextContent("12,5mm");
     });
   });
 
@@ -319,7 +494,7 @@ describe("ChartCard", () => {
         <ChartCard
           title="Chuva acumulada — hoje"
           variant="bar"
-          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 2, 5, 1] }]}
+          series={[{ label: "Chuva", color: "#06b6d4", points: pts([0, 2, 5, 1]) }]}
         />,
       );
 
@@ -335,7 +510,7 @@ describe("ChartCard", () => {
         <ChartCard
           title="Chuva"
           variant="bar"
-          series={[{ label: "Chuva", color: "#06b6d4", points: [3, 2, 5, 1] }]}
+          series={[{ label: "Chuva", color: "#06b6d4", points: pts([3, 2, 5, 1]) }]}
         />,
       );
 
@@ -349,7 +524,7 @@ describe("ChartCard", () => {
           title="Chuva"
           variant="bar"
           unit="mm"
-          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 0, 0] }]}
+          series={[{ label: "Chuva", color: "#06b6d4", points: pts([0, 0, 0]) }]}
         />,
       );
 
@@ -364,8 +539,8 @@ describe("ChartCard", () => {
           variant="bar"
           unit="mm"
           series={[
-            { label: "Chuva", color: "#06b6d4", points: [1, 2] },
-            { label: "Extra", color: "#000000", points: [9, 9, 9] },
+            { label: "Chuva", color: "#06b6d4", points: pts([1, 2]) },
+            { label: "Extra", color: "#000000", points: pts([9, 9, 9]) },
           ]}
         />,
       );
@@ -417,7 +592,7 @@ describe("ChartCard", () => {
           variant="bar"
           series={[
             { label: "Chuva", color: "#06b6d4", points: [] },
-            { label: "Ignorada", color: "#000000", points: [1, 2, 3] },
+            { label: "Ignorada", color: "#000000", points: pts([1, 2, 3]) },
           ]}
         />,
       );
@@ -433,7 +608,7 @@ describe("ChartCard", () => {
         <ChartCard
           title="Chart"
           variant="line"
-          series={[{ label: "Temperatura", color: "#f97316", points: [10, 50, 10] }]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([10, 50, 10]) }]}
         />,
       );
 
@@ -454,14 +629,13 @@ describe("ChartCard", () => {
           title="Temperatura"
           variant="line"
           unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24.5] }]}
-          pointLabels={["14:00", "15:00"]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([20, 24.5]) }]}
         />,
       );
 
       const tooltip = await hoverAt(container, 300);
-      expect(tooltip).toHaveTextContent("15:00");
-      expect(tooltip).toHaveTextContent("Temperatura24.5°C");
+      expect(tooltip).toHaveTextContent("23/07 15:00");
+      expect(tooltip).toHaveTextContent("Temperatura24,5°C");
 
       fireEvent.mouseLeave(container.querySelector(".recharts-wrapper")!);
       await waitFor(() => expect(tooltip).not.toBeVisible());
@@ -473,23 +647,22 @@ describe("ChartCard", () => {
           title="Chuva"
           variant="bar"
           unit="mm"
-          series={[{ label: "Chuva", color: "#06b6d4", points: [0, 2.4] }]}
-          pointLabels={["14:00", "15:00"]}
+          series={[{ label: "Chuva", color: "#06b6d4", points: pts([0, 2.4]) }]}
         />,
       );
 
-      const tooltip = await hoverAt(container, 250);
-      expect(tooltip).toHaveTextContent("15:00");
-      expect(tooltip).toHaveTextContent("2.4mm");
+      const tooltip = await hoverAt(container, 300);
+      expect(tooltip).toHaveTextContent("23/07 15:00");
+      expect(tooltip).toHaveTextContent("2,4mm");
     });
 
-    it("sem pointLabels, o tooltip ainda mostra o valor formatado com unidade", async () => {
+    it("o tooltip mostra o valor formatado com unidade", async () => {
       const { container } = render(
         <ChartCard
           title="Chart"
           variant="line"
           unit="%"
-          series={[{ label: "Umidade", color: "#0ea5e9", points: [60, 61] }]}
+          series={[{ label: "Umidade", color: "#0ea5e9", points: pts([60, 61]) }]}
         />,
       );
 
@@ -505,7 +678,7 @@ describe("ChartCard", () => {
           title="Temperatura"
           variant="line"
           unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [18, 24.6, 20] }]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([18, 24.6, 20]) }]}
         />,
       );
 
@@ -522,7 +695,7 @@ describe("ChartCard", () => {
           title="Chuva"
           variant="bar"
           unit="mm"
-          series={[{ label: "Chuva", color: "#06b6d4", points: [1, 5] }]}
+          series={[{ label: "Chuva", color: "#06b6d4", points: pts([1, 5]) }]}
         />,
       );
 
@@ -539,8 +712,8 @@ describe("ChartCard", () => {
           title="Temperatura × Umidade"
           variant="line"
           series={[
-            { label: "Temperatura", color: "#f97316", points: [20, 24], unit: "°C" },
-            { label: "Umidade", color: "#0ea5e9", points: [60, 65], unit: "%" },
+            { label: "Temperatura", color: "#f97316", points: pts([20, 24]), unit: "°C" },
+            { label: "Umidade", color: "#0ea5e9", points: pts([60, 65]), unit: "%" },
           ]}
         />,
       );
@@ -556,7 +729,7 @@ describe("ChartCard", () => {
           title="Temperatura"
           variant="line"
           unit="°C"
-          series={[{ label: "Temperatura", color: "#f97316", points: [20, 24] }]}
+          series={[{ label: "Temperatura", color: "#f97316", points: pts([20, 24]) }]}
         />,
       );
 
@@ -571,8 +744,8 @@ describe("ChartCard", () => {
           title="Temperatura × Umidade"
           variant="line"
           series={[
-            { label: "Temperatura", color: "#f97316", points: [20, 24], unit: "°C" },
-            { label: "Umidade", color: "#0ea5e9", points: [60, 65], unit: "%" },
+            { label: "Temperatura", color: "#f97316", points: pts([20, 24]), unit: "°C" },
+            { label: "Umidade", color: "#0ea5e9", points: pts([60, 65]), unit: "%" },
           ]}
         />,
       );
@@ -589,8 +762,8 @@ describe("ChartCard", () => {
           title="Temperatura × Sensação"
           variant="line"
           series={[
-            { label: "Temperatura", color: "#f97316", points: [18, 24], unit: "°C" },
-            { label: "Sensação", color: "#eab308", points: [17, 25], unit: "°C" },
+            { label: "Temperatura", color: "#f97316", points: pts([18, 24]), unit: "°C" },
+            { label: "Sensação", color: "#eab308", points: pts([17, 25]), unit: "°C" },
           ]}
         />,
       );
@@ -607,7 +780,7 @@ describe("ChartCard", () => {
       <ChartCard
         title="Chart"
         variant="line"
-        series={[{ label: "Temperatura", color: "#f97316", points: [1, 2, 3] }]}
+        series={[{ label: "Temperatura", color: "#f97316", points: pts([1, 2, 3]) }]}
       />,
     );
 

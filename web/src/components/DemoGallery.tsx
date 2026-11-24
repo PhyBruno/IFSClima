@@ -47,23 +47,36 @@ const SENSORS: Array<{ sensor: SensorType; label: string; value: number; unit: s
   { sensor: "wind", label: "Vento", value: 12, unit: "km/h" },
 ];
 
+/** Pontos sintéticos de hora em hora a partir de uma data fixa (demo determinística). */
+const DEMO_START = new Date("2026-07-23T00:00:00").getTime();
+const HOUR_MS = 60 * 60 * 1000;
+function hourly(values: number[]): ChartSeries["points"] {
+  return values.map((v, index) => ({ t: DEMO_START + index * 4 * HOUR_MS, v }));
+}
+
 const LINE_SERIES: ChartSeries[] = [
   {
     label: "Temperatura",
     color: "var(--sensor-temperature)",
-    points: [21, 22, 24, 23, 25, 24.7],
+    points: hourly([21, 22, 24, 23, 25, 24.7]),
     unit: "°C",
   },
   {
     label: "Umidade",
     color: "var(--sensor-humidity)",
-    points: [58, 60, 63, 61, 59, 62],
+    points: hourly([58, 60, 63, 61, 59, 62]),
     unit: "%",
+    bounds: { min: 0, max: 100 },
   },
 ];
 
 const BAR_SERIES: ChartSeries[] = [
-  { label: "Chuva", color: "var(--sensor-rain)", points: [0, 0.5, 3.2, 1.1, 0, 0.8], unit: "mm" },
+  {
+    label: "Chuva",
+    color: "var(--sensor-rain)",
+    points: hourly([0, 0.5, 3.2, 1.1, 0, 0.8]),
+    unit: "mm",
+  },
 ];
 
 function Section({
@@ -145,9 +158,15 @@ export function DemoGallery() {
               title="Temperatura x Umidade (24h)"
               variant="line"
               series={LINE_SERIES}
-              xLabels={["00:00", "12:00", "23:00"]}
+              granularity="hour"
             />
-            <ChartCard title="Chuva acumulada (7d)" variant="bar" series={BAR_SERIES} unit="mm" />
+            <ChartCard
+              title="Chuva por hora"
+              variant="bar"
+              series={BAR_SERIES}
+              granularity="hour"
+              unit="mm"
+            />
             <ChartCard title="Sem dados no período" variant="line" series={[]} />
           </div>
         </Section>

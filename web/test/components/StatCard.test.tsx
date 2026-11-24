@@ -11,7 +11,7 @@ describe("StatCard", () => {
     );
 
     expect(screen.getByText("Temperatura")).toBeInTheDocument();
-    expect(screen.getByText("24.6")).toBeInTheDocument();
+    expect(screen.getByText("24,6")).toBeInTheDocument();
     expect(screen.getByText("°C")).toBeInTheDocument();
     expect(screen.getByTestId("icon")).toBeInTheDocument();
   });
@@ -30,7 +30,7 @@ describe("StatCard", () => {
       <StatCard sensor="temperature" label="Temperatura" value={24.6} unit="°C" icon={ICON} />,
     );
 
-    const value = screen.getByText("24.6");
+    const value = screen.getByText("24,6");
     expect(value).toHaveClass("tabular-nums");
   });
 

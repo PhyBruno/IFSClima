@@ -1,4 +1,5 @@
-import type { LatestReading, Metric, Range, SeriesResponse } from "../api-client";
+import type { LatestReading, Metric, SeriesResponse } from "../api-client";
+import { periodLabel, type Period } from "../utils/period";
 import { getUvCriticality, type UvCriticality } from "../utils/uvIndex";
 import { ReportChart } from "./ReportChart";
 import {
@@ -34,12 +35,6 @@ import {
  */
 export const DASHBOARD_REPORT_TITLE = "Relatório do Painel de Monitoramento";
 
-export const RANGE_LABELS: Record<Range, string> = {
-  "24h": "Últimas 24 horas",
-  "7d": "Últimos 7 dias",
-  "30d": "Últimos 30 dias",
-};
-
 const UV_LEVEL_COLORS: Record<UvCriticality, { fg: string; bg: string }> = {
   low: { fg: "#15803d", bg: "#dcfce7" },
   moderate: { fg: "#a16207", bg: "#fef9c3" },
@@ -51,7 +46,7 @@ const UV_LEVEL_COLORS: Record<UvCriticality, { fg: string; bg: string }> = {
 export interface DashboardReportProps {
   latest: LatestReading | undefined;
   series: Partial<Record<Metric, SeriesResponse>>;
-  range: Range;
+  period: Period;
   generatedAt: Date;
 }
 
@@ -190,16 +185,18 @@ function TrendCard({
         width={width}
         height={height}
         digits={meta.digits}
-        utcDays={response?.bucket === "day"}
       />
     </ReportCard>
   );
 }
 
-export function DashboardReport({ latest, series, range, generatedAt }: DashboardReportProps) {
+export function DashboardReport({ latest, series, period, generatedAt }: DashboardReportProps) {
   const halfWidth = (CONTENT_WIDTH_PX - 16) / 2 - 34;
+  const label = periodLabel(period, "long");
   const bucketText =
-    range === "30d" ? "cada ponto é a média de um dia" : "cada ponto é a média de uma hora";
+    series.temperature_c?.bucket === "day"
+      ? "cada ponto é a média de um dia"
+      : "cada ponto é a média de uma hora";
 
   return (
     <>
@@ -210,7 +207,7 @@ export function DashboardReport({ latest, series, range, generatedAt }: Dashboar
           description="Condições mais recentes registradas pela estação e o comportamento de cada sensor no período selecionado."
           meta={[
             { label: "Estação", value: latest?.station_id ?? "main" },
-            { label: "Período", value: RANGE_LABELS[range] },
+            { label: "Período", value: label },
             { label: "Última leitura", value: formatDateTime(latest?.timestamp) },
             { label: "Gerado em", value: formatDateTime(generatedAt) },
           ]}
@@ -224,7 +221,7 @@ export function DashboardReport({ latest, series, range, generatedAt }: Dashboar
           </div>
         </ReportSection>
 
-        <ReportSection title="Resumo do período" hint={RANGE_LABELS[range]}>
+        <ReportSection title="Resumo do período" hint={label}>
           <SummaryTable series={series} />
         </ReportSection>
 
@@ -241,7 +238,7 @@ export function DashboardReport({ latest, series, range, generatedAt }: Dashboar
       <ReportPage pageNumber={2} totalPages={TOTAL_PAGES} documentTitle={DASHBOARD_REPORT_TITLE}>
         <ReportContinuationHeader
           title="Tendências do período"
-          subtitle={`${RANGE_LABELS[range]} · gerado em ${formatDateTime(generatedAt)}`}
+          subtitle={`${label} · gerado em ${formatDateTime(generatedAt)}`}
         />
 
         <div className="grid grid-cols-2 gap-4">

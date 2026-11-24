@@ -25,7 +25,7 @@ function createWrapper() {
 
 describe("useSeries", () => {
   it("resolve com os buckets tipados de /series", async () => {
-    const { result } = renderHook(() => useSeries("temperature_c", "24h"), {
+    const { result } = renderHook(() => useSeries("temperature_c", { range: "24h" }), {
       wrapper: createWrapper(),
     });
 
@@ -37,7 +37,7 @@ describe("useSeries", () => {
   it("expõe isError quando a API falha", async () => {
     server.use(http.get("/api/v1/readings/series", () => new HttpResponse(null, { status: 500 })));
 
-    const { result } = renderHook(() => useSeries("temperature_c", "24h"), {
+    const { result } = renderHook(() => useSeries("temperature_c", { range: "24h" }), {
       wrapper: createWrapper(),
     });
 
@@ -45,11 +45,11 @@ describe("useSeries", () => {
   });
 
   it("habilita placeholderData=keepPreviousData (nunca tela branca ao trocar período)", () => {
-    renderHook(() => useSeries("temperature_c", "24h"), { wrapper: createWrapper() });
+    renderHook(() => useSeries("temperature_c", { range: "24h" }), { wrapper: createWrapper() });
 
     expect(vi.mocked(useQuery)).toHaveBeenCalledWith(
       expect.objectContaining({
-        queryKey: seriesQueryKey("temperature_c", "24h"),
+        queryKey: seriesQueryKey("temperature_c", { range: "24h" }),
         placeholderData: keepPreviousData,
       }),
     );
@@ -59,7 +59,7 @@ describe("useSeries", () => {
     const wrapper = createWrapper();
     const { result, rerender } = renderHook(
       ({ metric, range }: { metric: "temperature_c" | "rain_mm"; range: "24h" }) =>
-        useSeries(metric, range),
+        useSeries(metric, { range }),
       {
         wrapper,
         initialProps: { metric: "temperature_c", range: "24h" },
@@ -74,5 +74,31 @@ describe("useSeries", () => {
 
     await waitFor(() => expect(result.current.data?.metric).toBe("rain_mm"));
     expect(result.current.data?.buckets[0]?.sum).toBe(0.4);
+  });
+
+  it("intervalo personalizado: envia from/to e usa o par na chave de cache", async () => {
+    let params: URLSearchParams | undefined;
+    server.use(
+      http.get("/api/v1/readings/series", ({ request }) => {
+        params = new URL(request.url).searchParams;
+        return HttpResponse.json(seriesFixture);
+      }),
+    );
+    const window = { from: "2026-07-01T00:00:00.000Z", to: "2026-07-10T23:59:59.999Z" };
+
+    const { result } = renderHook(() => useSeries("temperature_c", window), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(params?.get("from")).toBe(window.from);
+    expect(params?.get("to")).toBe(window.to);
+    expect(params?.has("range")).toBe(false);
+    expect(seriesQueryKey("temperature_c", window)).toEqual([
+      "readings",
+      "series",
+      "temperature_c",
+      `${window.from}/${window.to}`,
+    ]);
   });
 });

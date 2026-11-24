@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { InfoTooltip } from "./InfoTooltip";
+import { formatDecimal } from "../utils/formatNumber";
 
 /**
  * `StatCard` — card de sensor sobre o `Card` do shadcn/ui.
@@ -212,7 +213,7 @@ export function StatCard({
         <LabelRow label={label} tooltip={tooltip} badge={badge} />
         <p className="flex items-baseline gap-1">
           <span className="font-heading text-xl font-semibold tabular-nums tracking-tight text-card-foreground md:text-[27px]">
-            {value}
+            {value === null ? null : formatDecimal(value, 1)}
           </span>
           <span className="text-xs text-muted-foreground">{unit}</span>
         </p>

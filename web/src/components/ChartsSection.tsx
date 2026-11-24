@@ -2,392 +2,217 @@ import { useState } from "react";
 import { useQueries, type UseQueryResult } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChartCard, type ChartSeries } from "./ChartCard";
-import { ScatterChartCard, type ScatterPoint } from "./ScatterChartCard";
+import { ChartCard, type ChartSeries, type ValueBounds } from "./ChartCard";
+import { CustomRangePopover, type AppliedRange } from "./CustomRangePopover";
 import { PeriodSelector, type PeriodOption } from "./PeriodSelector";
 import { ConnectionBanner } from "./ConnectionBanner";
 import { seriesQueryOptions } from "../hooks/useSeries";
-import { formatTime, formatDayMonth, formatDayMonthUTC } from "../utils/formatTime";
-import type { BucketUnit, Metric, Range, SeriesBucket, SeriesResponse } from "../api-client";
+import { useRawReadings } from "../hooks/useRawReadings";
+import type { HistoryReading, Metric, SeriesResponse } from "../api-client";
+import type { TimePoint } from "../utils/timeAxis";
+import {
+  DASHBOARD_MAX_RANGE_DAYS,
+  PRESET_RANGES,
+  buildSearchWithPeriod,
+  getPeriodFromSearch,
+  periodLabel,
+  periodToWindow,
+  type Period,
+} from "../utils/period";
 
 /**
- * `ChartsSection` — F6 T6.3/T6.4 (design.md "Layout"/"Arquitetura
- * frontend"): `PeriodSelector` (F5) + um `ChartCard` (F5) por métrica,
- * ligados por um único estado de período compartilhado, com skeleton de
- * loading e banner de reconexão (T6.4). Reusa F5/T6.1 tal como estão — não
- * recria seletor, cartão de gráfico, client HTTP nem hooks de dados.
+ * `ChartsSection` — seletor de período + um `ChartCard` por métrica +
+ * "Comparativos", ligados por um único período compartilhado, com skeleton
+ * de loading e banner de reconexão (T6.3/T6.4).
  *
- * **Período em `?range=` (URL), não `useState` "solto"**: design.md decide
- * isso explicitamente ("fonte única, default 24h, recarrega todos os
- * gráficos ao trocar" — UI-06). Não há React Router instalado (`web/
- * package.json`) e adicionar um só para uma única query string seria
- * desproporcional — a leitura/escrita usa `URLSearchParams`/`window.history`
- * diretamente. `history.replaceState` (não `pushState`): trocar o período é
- * um filtro, não uma nova "página" — não queremos empilhar uma entrada de
- * histórico por clique no seletor.
+ * **Período na URL** (`?range=`, e `&from=&to=` no "Personalizado"): fonte
+ * única, compartilhável e lida também pelo export do PDF (`utils/period.ts`).
+ * `history.replaceState` (não `pushState`): trocar o período é um filtro,
+ * não uma nova página. Sem React Router — uma query string não justifica.
  *
- * **`ChartCard` é a fronteira com o Recharts.** Este arquivo só monta os
- * dados (séries, rótulos, unidades) — o desenho em si (shadcn `Chart` +
- * Recharts, eixos por unidade, tooltip) vive inteiro em `ChartCard.tsx`.
+ * **"Personalizado" (pedido do usuário, 2026-11-24)**: mesmo calendário do
+ * Histórico (`CustomRangePopover`), limitado a 3 meses
+ * (`DASHBOARD_MAX_RANGE_DAYS`, também validado pela API de séries). Escolher a opção só abre o popover; o
+ * período (e os gráficos) mudam no "Aplicar". Fechar sem aplicar volta o
+ * seletor ao período em vigor.
  *
- * **Sem banda min/max sobreposta.** Só `avg` (ou `sum`, na chuva) é
- * desenhado; `min`/`max` continuam no payload para uma extensão futura que
- * dê ao `ChartCard` um modo de banda (fora do escopo atual).
+ * **Eixo de tempo real (revisão física, 2026-11-24)**: cada série vira
+ * pontos `{t, v}` e o domínio do eixo X é a janela que a API efetivamente
+ * consultou (`SeriesResponse.from/to`) — período sem leituras aparece como
+ * vazio, buracos interrompem o traço (ver `ChartCard`).
  *
- * **`useQueries`, não `useSeries` por gráfico (T6.4).** T6.3 chamava
- * `useSeries` dentro de um componente `MetricChart` por métrica — 5
- * instâncias de componente, 5 chamadas de hook, uma por elemento da árvore.
- * T6.4 precisa saber o status (`isPending`/`isError`) de TODAS as 5 séries
- * NO NÍVEL DO `ChartsSection` (pra decidir o skeleton por card e agregar um
- * banner de reconexão único da seção) — chamar `useSeries` dentro de um
- * `.map()` sobre `METRIC_CHARTS` violaria as Rules of Hooks
- * (`react-hooks/rules-of-hooks`, ver `web/.eslintrc.cjs`, mesmo
- * `METRIC_CHARTS` sendo um array de tamanho fixo, o lint não consegue provar
- * isso estaticamente). `useQueries` é o hook do próprio React Query
- * desenhado para "N queries a partir de um array" — usa a mesma definição de
- * query (`seriesQueryOptions`, extraída de `useSeries.ts` nesta tarefa) que
- * `useSeries` usaria, então não há duplicação de `queryKey`/`queryFn`/
- * `placeholderData` nem requests extras (mesma `queryKey` = mesmo cache).
+ * **`useQueries`, não `useSeries` por gráfico (T6.4)**: o status de TODAS as
+ * séries precisa ser conhecido aqui (skeleton por card + banner único), e
+ * chamar um hook dentro de `.map()` violaria as Rules of Hooks. Mesmas
+ * `seriesQueryOptions` de `useSeries` → mesma `queryKey`, mesmo cache.
  */
-
-const RANGE_VALUES: Range[] = ["24h", "7d", "30d"];
 
 const RANGE_OPTIONS: PeriodOption[] = [
   { value: "24h", label: "Últimas 24h" },
   { value: "7d", label: "7 dias" },
   { value: "30d", label: "30 dias" },
+  { value: "custom", label: "Personalizado" },
 ];
 
-const RANGE_QUERY_PARAM = "range";
-const DEFAULT_RANGE: Range = "24h";
-
-function isRange(value: string | null): value is Range {
-  return value !== null && (RANGE_VALUES as string[]).includes(value);
-}
-
-/** Lê `?range=` de uma query string (`location.search`); default `24h` se ausente/inválida. */
-export function getRangeFromSearch(search: string): Range {
-  const value = new URLSearchParams(search).get(RANGE_QUERY_PARAM);
-  return isRange(value) ? value : DEFAULT_RANGE;
-}
-
-/** Devolve uma nova query string com `?range=` setado, preservando os demais parâmetros. */
-export function buildSearchWithRange(search: string, range: Range): string {
-  const params = new URLSearchParams(search);
-  params.set(RANGE_QUERY_PARAM, range);
-  const query = params.toString();
-  return query ? `?${query}` : "";
-}
-
 /**
- * `t` (UTC) → rótulo no fuso LOCAL do cliente (design.md "Timezone: formatar
- * no cliente a partir de UTC"). T6.4: delega a `formatTime`/`formatDayMonth`
- * (`web/src/utils/formatTime.ts`) em vez de reimplementar o padding
- * `HH:MM`/`DD/MM` aqui — mesma lógica agora compartilhada com
- * `ConnectionBanner` (horário absoluto da última leitura conhecida).
+ * Limites físicos de cada grandeza — o respiro do eixo Y nunca passa deles
+ * (revisão física, 2026-11-24: o eixo da umidade chegava a 106 %).
  */
-function formatBucketLabel(t: string, unit: BucketUnit): string {
-  // bucket="day" (range=30d) é date_trunc('day', ...) em UTC (api/src/db/client.ts
-  // força timezone=UTC) — usa formatDayMonthUTC (não reinterpreta no fuso
-  // local) para não desalinhar o dia em fusos negativos (ver formatTime.ts).
-  return unit === "hour" ? formatTime(t) : formatDayMonthUTC(t);
-}
+export const METRIC_BOUNDS: Partial<Record<Metric, ValueBounds>> = {
+  humidity_pct: { min: 0, max: 100 },
+  rain_mm: { min: 0 },
+  uv_index: { min: 0 },
+};
 
-/**
- * Uma label (`formatDayMonth`) por dia LOCAL distinto entre os buckets — o
- * PRIMEIRO bucket de cada dia representa aquele dia (`Date#getFullYear`/
- * `getMonth`/`getDate`, fuso do navegador, mesmo princípio de `formatTime.ts`).
- * Usado só pro range `7d` (feedback do usuário, 2026-07-24, ver `buildXLabels`
- * abaixo) — não genérico pra qualquer bucket "hour", porque em `24h` isso
- * degeneraria pra só 1-2 labels (o range inteiro cabe num único dia local, na
- * prática), sem ganho sobre o par primeiro/último já usado ali.
- */
-function uniqueDayLabels(buckets: SeriesBucket[]): string[] {
-  const seenDays = new Set<string>();
-  const labels: string[] = [];
-
-  for (const bucket of buckets) {
-    const date = new Date(bucket.t);
-    if (Number.isNaN(date.getTime())) {
-      continue;
-    }
-
-    const dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-    if (!seenDays.has(dayKey)) {
-      seenDays.add(dayKey);
-      labels.push(formatDayMonth(bucket.t));
-    }
-  }
-
-  return labels;
-}
-
-/**
- * Rótulos de eixo X — `ChartCard` espalha o array recebido com
- * `justify-between` (N labels igualmente espaçadas, não 1:1 posicional com os
- * pontos, ver uso em `DemoGallery`).
- *
- * **Regra geral (24h/30d)**: só os extremos (primeiro/último bucket) — o
- * range inteiro cabe numa faixa curta o bastante pra dois rótulos bastarem
- * (24h: só horas; 30d: bucket já é `day`, primeiro/último dia já orienta).
- *
- * **`range="7d"` — um marcador POR DIA (feedback do usuário, 2026-07-24)**:
- * diferente de `24h`/`30d`, o bucket de `7d` é `hour` (`RANGE_CONFIG` em
- * `api/src/services/readings-service.ts` — 168 buckets horários, não
- * diários), então o par "primeiro/último" da regra geral mostrava só duas
- * HORAS (ex. "21:00"/"04:00"), sem nenhuma orientação de QUAL dia da semana
- * cada ponto do gráfico representa. `uniqueDayLabels` extrai um rótulo
- * `DD/MM` por dia local distinto presente nos buckets (tipicamente 7-8,
- * dependendo de onde a janela de 7 dias corta o primeiro/último dia).
- */
-export function buildXLabels(response: SeriesResponse | undefined): string[] {
-  if (!response || response.buckets.length === 0) {
+/** Buckets → pontos no tempo (`avg`, ou `sum` na chuva). Bucket sem valor vira `null`. */
+export function bucketsToPoints(
+  response: SeriesResponse | undefined,
+  field: "avg" | "sum" = "avg",
+): TimePoint[] {
+  if (!response) {
     return [];
   }
+  return response.buckets.map((bucket) => ({ t: new Date(bucket.t).getTime(), v: bucket[field] }));
+}
 
-  const { buckets, bucket, range } = response;
-
-  if (range === "7d") {
-    return uniqueDayLabels(buckets);
-  }
-
-  if (buckets.length === 1) {
-    return [formatBucketLabel(buckets[0]!.t, bucket)];
-  }
-
-  return [
-    formatBucketLabel(buckets[0]!.t, bucket),
-    formatBucketLabel(buckets[buckets.length - 1]!.t, bucket),
-  ];
+function hasAnyValue(points: TimePoint[]): boolean {
+  return points.some((point) => point.v !== null);
 }
 
 /**
- * Extrai `points`/`labels` de `field` ("avg"/"sum") em paralelo — buckets com
- * valor `null` são pulados dos DOIS arrays juntos (mantém o índice de
- * `labels[i]` correspondente a `points[i]`, nunca um dos dois "desalinhando"
- * do outro por causa de um bucket sem dado).
- */
-function extractSeriesData(
-  buckets: SeriesBucket[],
-  field: "avg" | "sum",
-  bucketUnit: BucketUnit,
-): { points: number[]; labels: string[] } {
-  const points: number[] = [];
-  const labels: string[] = [];
-  for (const bucket of buckets) {
-    const value = bucket[field];
-    if (value !== null) {
-      points.push(value);
-      labels.push(formatBucketLabel(bucket.t, bucketUnit));
-    }
-  }
-  return { points, labels };
-}
-
-/**
- * `avg` (default) ou `sum` de cada bucket → 1 série de linha (UI-05).
- * `response` undefined (query ainda sem dado) ou sem pontos válidos → `[]`,
- * o que já faz o `ChartCard` mostrar `EmptyState` sozinho (UI-06 AC4).
- *
- * `unit` (4º parâmetro, opcional): popula `ChartSeries.unit` — usado pelos
- * cards "combo" (`COMBO_CHARTS`/`comboSeries` abaixo), onde cada uma das 2
- * séries do card tem sua PRÓPRIA unidade (`ChartCard.tsx`, bullet "Unidade
- * por série"). Omitido (chamada dos 5 cards de métrica única em
- * `METRIC_CHARTS`, inalterada) = `ChartSeries.unit` fica `undefined` e o
- * `ChartCard` cai no `unit` do card inteiro, exatamente como antes desta
- * task — retrocompatibilidade total, sem mudar o array já retornado pelas
- * chamadas existentes (o operador de espalhamento condicional abaixo evita
- * até uma chave `unit: undefined` "a mais" no objeto, pra não depender da
- * semântica de `toEqual` ignorar chaves `undefined`).
- *
- * `field` (5º parâmetro, opcional, default `"avg"`): pedido do usuário,
- * 2026-08-16 — o card standalone "Chuva" passou de `variant="bar"` para
- * `variant="line"` (visual consistente com os outros 4 cards), mas SEM
- * perder o significado físico de "chuva acumulada" (UI-07/spec.md AC3, ver
- * `bucketsToBarSeries` abaixo) — continua somando por bucket, só desenhado
- * como linha em vez de barras. `METRIC_CHARTS`/`aggregation` decide isso;
- * as chamadas de `comboSeries` (combos) continuam com o default `"avg"`,
- * inalteradas. (Em 2026-10-02 a chuva virou 2 cards — Distribuição e
- * Acumulada, esta desde 2026-10-06 uma barra única via
- * `bucketsToTotalSeries` —, então nenhum card de `METRIC_CHARTS` usa mais
- * `field="sum"` aqui; o parâmetro fica disponível.)
+ * `avg` (default) ou `sum` de cada bucket → 1 série de linha. Sem resposta
+ * ou sem nenhum valor → `[]` (o `ChartCard` mostra o `EmptyState`).
  */
 export function bucketsToLineSeries(
   response: SeriesResponse | undefined,
   label: string,
   color: string,
-  unit?: string,
-  field: "avg" | "sum" = "avg",
+  options: { unit?: string; field?: "avg" | "sum"; bounds?: ValueBounds } = {},
 ): ChartSeries[] {
-  if (!response) {
+  const points = bucketsToPoints(response, options.field ?? "avg");
+  if (!hasAnyValue(points)) {
     return [];
   }
+  return [
+    {
+      label,
+      color,
+      points,
+      ...(options.unit !== undefined ? { unit: options.unit } : {}),
+      ...(options.bounds !== undefined ? { bounds: options.bounds } : {}),
+    },
+  ];
+}
 
-  const { points } = extractSeriesData(response.buckets, field, response.bucket);
-  return points.length === 0
-    ? []
-    : [{ label, color, points, ...(unit !== undefined ? { unit } : {}) }];
+/** `sum` (não `avg`) de cada bucket → 1 série de barras — chuva é volume acumulado no bucket (UI-07). */
+export function bucketsToBarSeries(
+  response: SeriesResponse | undefined,
+  label: string,
+  color: string,
+): ChartSeries[] {
+  const points = bucketsToPoints(response, "sum");
+  return hasAnyValue(points) ? [{ label, color, points }] : [];
 }
 
 /**
  * TOTAL do período: soma do `sum` de todos os buckets → 1 série com UM único
- * ponto (pedido do usuário, 2026-10-06: card "Chuva (Acumulada)" é uma barra
- * única com os mm chovidos nas últimas 24h/7d/30d). A janela é a da própria
- * resposta — a API calcula `since = agora - lookbackMs` a cada requisição
- * (`readings-service.ts`), então o total sempre é "até o momento do acesso".
- * Buckets com `sum=null` são ignorados (mesma regra de `extractSeriesData`);
- * se NENHUM bucket tem `sum` (sem leituras / métrica não-chuva) → `[]`, e o
- * `ChartCard` mostra o `EmptyState`. Período sem chuva (todos `sum=0`) é uma
- * barra de 0 mm, não um card vazio.
+ * ponto (card "Chuva (Acumulada)", barra única com os mm do período —
+ * pedido do usuário, 2026-10-06). Período sem chuva (todos `sum=0`) é uma
+ * barra de 0 mm, não um card vazio; nenhum `sum` (sem leituras) → `[]`.
  */
 export function bucketsToTotalSeries(
   response: SeriesResponse | undefined,
   label: string,
   color: string,
 ): ChartSeries[] {
-  if (!response) {
+  const values = bucketsToPoints(response, "sum")
+    .map((point) => point.v)
+    .filter((value): value is number => value !== null);
+  if (values.length === 0) {
     return [];
   }
 
-  const { points } = extractSeriesData(response.buckets, "sum", response.bucket);
+  // Arredonda a 2 casas: somar floats (0.1 + 0.2...) deixaria resíduos no tooltip.
+  const total = Math.round(values.reduce((acc, value) => acc + value, 0) * 100) / 100;
+  return [{ label, color, points: [{ t: new Date(response!.to).getTime(), v: total }] }];
+}
+
+/** Janela consultada pela API (epoch ms) — domínio do eixo X. */
+export function seriesDomain(response: SeriesResponse | undefined): [number, number] | undefined {
+  if (!response) {
+    return undefined;
+  }
+  const from = new Date(response.from).getTime();
+  const to = new Date(response.to).getTime();
+  return Number.isFinite(from) && Number.isFinite(to) && to > from ? [from, to] : undefined;
+}
+
+/**
+ * Acima disso, os gráficos de pontos desenham 1 a cada N leituras (SVG com
+ * dezenas de milhares de círculos trava a página). 3 meses de leituras a
+ * cada 15 min (~8800) ficam com 1 a cada 3.
+ */
+export const MAX_DOTS_PER_SERIES = 3000;
+
+/**
+ * Leituras brutas → série de PONTOS ao longo do tempo (decisão do usuário,
+ * 2026-11-24: cada ponto é uma leitura real). Acima de `maxPoints`, mantém
+ * 1 a cada `stride` leituras — amostragem por passo, SEM média: todo ponto
+ * desenhado continua sendo uma medição real da estação.
+ */
+export function readingsToDotSeries(
+  readings: HistoryReading[],
+  metric: Metric,
+  config: { label: string; color: string; unit: string },
+  maxPoints = MAX_DOTS_PER_SERIES,
+): { series: ChartSeries[]; stride: number } {
+  const points: TimePoint[] = [];
+  for (const reading of readings) {
+    const value = reading[metric];
+    const t = new Date(reading.timestamp).getTime();
+    if (value !== null && Number.isFinite(t)) {
+      points.push({ t, v: value });
+    }
+  }
+
   if (points.length === 0) {
-    return [];
+    return { series: [], stride: 1 };
   }
 
-  // Arredonda a 2 casas: somar floats (0.1 + 0.2...) deixaria resíduos tipo
-  // 0.30000000000000004 no tooltip.
-  const total = Math.round(points.reduce((acc, value) => acc + value, 0) * 100) / 100;
-  return [{ label, color, points: [total] }];
-}
-
-/** `sum` (não `avg`) de cada bucket → 1 série de barras — chuva é acumulada, não uma média (UI-07/spec.md AC3). */
-export function bucketsToBarSeries(
-  response: SeriesResponse | undefined,
-  label: string,
-  color: string,
-): ChartSeries[] {
-  if (!response) {
-    return [];
-  }
-
-  const { points } = extractSeriesData(response.buckets, "sum", response.bucket);
-  return points.length === 0 ? [] : [{ label, color, points }];
-}
-
-/**
- * Um rótulo de tempo POR PONTO (não só os extremos, ver `buildXLabels`) —
- * usado pelo tooltip de `ChartCard` (feedback do usuário, 2026-07-24: "ao
- * passar o mouse num ponto, tem que ter tooltip"). `field` precisa ser o
- * MESMO usado por `bucketsToLineSeries`/`bucketsToBarSeries` pra essa
- * métrica, senão os rótulos desalinham dos pontos (um bucket com `avg=null`
- * mas `sum` preenchido, por ex., é pulado em `points` de um jeito e não do
- * outro — ver `extractSeriesData`).
- *
- * **`range="7d"` — dia + hora, não só hora (feedback do usuário,
- * 2026-07-24)**: o bucket de `7d` é `hour` (mesma razão de `buildXLabels`
- * acima) — um tooltip só com "14:00" é ambíguo numa janela de 7 dias (QUAL
- * dos 7 dias?). Só nesse range o rótulo vira `"DD/MM HH:MM"` em vez do
- * `formatBucketLabel` padrão. `30d` não precisa desse tratamento: o bucket
- * já é `day`, então `formatBucketLabel` já produz `"DD/MM"` sozinho (um
- * valor médio diário não tem "hora" própria pra mostrar).
- */
-export function bucketsToPointLabels(
-  response: SeriesResponse | undefined,
-  field: "avg" | "sum",
-): string[] {
-  if (!response) {
-    return [];
-  }
-
-  if (response.range === "7d") {
-    return response.buckets
-      .filter((bucket) => bucket[field] !== null)
-      .map((bucket) => formatPointLabel(bucket.t, response));
-  }
-
-  return extractSeriesData(response.buckets, field, response.bucket).labels;
-}
-
-/** Rótulo de tempo de UM ponto — mesma regra de `bucketsToPointLabels` (`7d` = dia + hora). */
-function formatPointLabel(t: string, response: SeriesResponse): string {
-  return response.range === "7d"
-    ? `${formatDayMonth(t)} ${formatTime(t)}`
-    : formatBucketLabel(t, response.bucket);
-}
-
-/**
- * Pares (x, y) de dois `SeriesResponse` para o gráfico de dispersão (pedido
- * do usuário, 2026-10-02 — uma grandeza em função da outra). O pareamento é
- * pelo `t` do bucket (não pelo índice): só entram buckets em que AS DUAS
- * métricas têm `avg` — um gap em uma delas nunca casa o valor de um horário
- * com o de outro. O rótulo de tempo vai junto pro tooltip.
- */
-export function scatterPoints(
-  yResponse: SeriesResponse | undefined,
-  xResponse: SeriesResponse | undefined,
-): ScatterPoint[] {
-  if (!yResponse || !xResponse) {
-    return [];
-  }
-
-  const xByTime = new Map<string, number>();
-  for (const bucket of xResponse.buckets) {
-    if (bucket.avg !== null) {
-      xByTime.set(bucket.t, bucket.avg);
-    }
-  }
-
-  const points: ScatterPoint[] = [];
-  for (const bucket of yResponse.buckets) {
-    const x = xByTime.get(bucket.t);
-    if (bucket.avg !== null && x !== undefined) {
-      points.push({ x, y: bucket.avg, label: formatPointLabel(bucket.t, yResponse) });
-    }
-  }
-  return points;
+  const stride = Math.max(1, Math.ceil(points.length / maxPoints));
+  const sampled = stride === 1 ? points : points.filter((_, index) => index % stride === 0);
+  const bounds = METRIC_BOUNDS[metric];
+  return {
+    series: [
+      {
+        label: config.label,
+        color: config.color,
+        unit: config.unit,
+        points: sampled,
+        ...(bounds ? { bounds } : {}),
+      },
+    ],
+    stride,
+  };
 }
 
 interface MetricChartConfig {
   metric: Metric;
   title: string;
-  /** Cor CSS literal (`var(--sensor-*)`, ver `src/index.css`) — acento por sensor (docs/design-extraction.md §1.4). */
+  /** Cor CSS literal (`var(--sensor-*)`, ver `src/index.css`). */
   color: string;
-  variant: "line" | "bar";
-  /** Unidade exibida no eixo Y e no tooltip do `ChartCard` (feedback do usuário, 2026-07-24) — mesmos valores usados em `SensorGrid.SENSORS`. */
+  variant: "line" | "bar" | "total";
+  /** Unidade do eixo Y e do tooltip — mesmos valores de `SensorGrid.SENSORS`. */
   unit: string;
-  /**
-   * Campo agregado por bucket — `"avg"` (default, omitido) pra maioria das
-   * métricas; os 2 cards de Chuva usam `"sum"` (volume do bucket, não uma
-   * média). Também define o campo dos rótulos de tooltip
-   * (`bucketsToPointLabels`), por isso é declarado mesmo em `variant="bar"`,
-   * onde `bucketsToBarSeries` já é sempre `sum`.
-   */
-  aggregation?: "avg" | "sum";
-  /**
-   * Barra ÚNICA com o total do período (`bucketsToTotalSeries`) em vez de um
-   * ponto por bucket — card "Chuva (Acumulada)" (pedido do usuário,
-   * 2026-10-06). Exige `variant: "bar"`; o rótulo do tooltip é a janela
-   * (`TOTAL_PERIOD_LABELS`), não um horário.
-   */
-  total?: boolean;
 }
-
-/** Janela mostrada no tooltip da barra de total — o que o usuário escolheu no `PeriodSelector`. */
-const TOTAL_PERIOD_LABELS: Record<Range, string> = {
-  "24h": "Últimas 24h",
-  "7d": "Últimos 7 dias",
-  "30d": "Últimos 30 dias",
-};
 
 /**
  * Ordem/composição do grid (design.md "Layout"): Temp/Umidade, Pressão/Chuva
  * (Distribuição), Chuva (Acumulada)/UV — 2 colunas (md:), 3+3 em `xl:`.
  *
- * Chuva em DOIS cards (pedido do usuário e do professor, 2026-10-02): o de
- * "Distribuição" é o volume de cada bucket (quando choveu e quanto em cada
- * hora/dia); o de "Acumulada" é UMA barra com o total do período (quanto
- * choveu nas últimas 24h/7d/30d). Os dois leem a MESMA query de `rain_mm` — `useQueries` abaixo é
- * montado sobre `METRICS` (métricas únicas), não sobre os cards.
+ * Chuva em DOIS cards (2026-10-02): "Distribuição" é o volume de cada
+ * bucket (hietograma, barras no tempo); "Acumulada" é UMA barra com o total
+ * do período (2026-10-06). Os dois leem a MESMA query de `rain_mm`.
  */
 const METRIC_CHARTS: MetricChartConfig[] = [
   {
@@ -415,23 +240,15 @@ const METRIC_CHARTS: MetricChartConfig[] = [
     metric: "rain_mm",
     title: "Chuva (Distribuição)",
     color: "var(--sensor-rain)",
-    // Barras (hietograma), pedido do usuário, 2026-10-02: cada valor é o
-    // volume de um intervalo isolado — discreto. A acumulada (abaixo) fica
-    // em linha: é contínua e a inclinação dela é a intensidade.
     variant: "bar",
     unit: "mm",
-    aggregation: "sum",
   },
   {
     metric: "rain_mm",
     title: "Chuva (Acumulada)",
     color: "var(--sensor-rain)",
-    // Barra única (pedido do usuário, 2026-10-06): total de mm das últimas
-    // 24h/7d/30d contados a partir do momento do acesso.
-    variant: "bar",
+    variant: "total",
     unit: "mm",
-    aggregation: "sum",
-    total: true,
   },
   {
     metric: "uv_index",
@@ -445,8 +262,7 @@ const METRIC_CHARTS: MetricChartConfig[] = [
 /** Uma query por métrica distinta (os 2 cards de chuva compartilham `rain_mm`). */
 const METRICS: Metric[] = [...new Set(METRIC_CHARTS.map((config) => config.metric))];
 
-/** Uma das 2 métricas desenhadas num `ComboChartConfig` — vira 1 `ChartSeries` via `bucketsToLineSeries(..., unit)`. */
-interface ComboSeriesConfig {
+interface PairMetric {
   metric: Metric;
   label: string;
   color: string;
@@ -454,171 +270,64 @@ interface ComboSeriesConfig {
 }
 
 /**
- * Um card "comparativo" (2 métricas sobrepostas no mesmo `ChartCard`,
- * pedido do usuário do produto, 2026-07-24) — não cabe no shape de
- * `MetricChartConfig` (1 métrica só), daí um tipo/array separado e um
- * segundo bloco de renderização abaixo (`COMBO_CHARTS.map`, mesma ideia de
- * `METRIC_CHARTS.map`, mas com uma chave própria — nenhuma metric única
- * identifica o card).
+ * Um par comparativo: as 2 grandezas AO LONGO DO TEMPO, em dois cards — as
+ * médias por hora/dia em linhas e as leituras brutas em pontos (pedido do
+ * usuário, 2026-11-24, que substituiu as dispersões "Y em função de X").
  */
-interface ComboChartConfig {
-  key: string;
-  /** Sempre "line" — as 2 séries de cada combo usam `avg` (`bucketsToLineSeries`). */
-  title: string;
-  series: [ComboSeriesConfig, ComboSeriesConfig];
-}
-
-/**
- * Os 2 combos: Temperatura e Umidade, Temperatura e Pressão (o combo Índice
- * UV × Chuva foi removido em 2026-10-02, pedido do usuário). Títulos com "e"
- * (não "×") desde 2026-10-02, pedido do usuário: esses cards mostram as duas
- * grandezas AO LONGO DO TEMPO, não uma em função da outra — o "×" ficou
- * reservado aos gráficos de dispersão (`SCATTER_CHARTS`, abaixo). Todas as
- * métricas aqui já são buscadas pelos 5 `ChartCard`s de
- * `METRIC_CHARTS` (mesmo `range`) — `comboSeries`/`comboIsPending` abaixo
- * leem o MESMO resultado de `useQueries` por `metric` (`resultByMetric`),
- * então nenhuma requisição de rede extra é feita (mesma `queryKey` = mesmo
- * cache do React Query, dedupe automático — ver docstring de
- * `seriesQueryOptions`).
- */
-const COMBO_CHARTS: ComboChartConfig[] = [
-  {
-    key: "temperature-humidity",
-    title: "Temperatura e Umidade",
-    series: [
-      {
-        metric: "temperature_c",
-        label: "Temperatura",
-        color: "var(--sensor-temperature)",
-        unit: "°C",
-      },
-      {
-        metric: "humidity_pct",
-        label: "Umidade",
-        color: "var(--sensor-humidity)",
-        unit: "%",
-      },
-    ],
-  },
-  {
-    key: "temperature-pressure",
-    title: "Temperatura e Pressão",
-    series: [
-      {
-        metric: "temperature_c",
-        label: "Temperatura",
-        color: "var(--sensor-temperature)",
-        unit: "°C",
-      },
-      {
-        metric: "pressure_hpa",
-        label: "Pressão",
-        color: "var(--sensor-pressure)",
-        unit: "hPa",
-      },
-    ],
-  },
-];
-
-interface ScatterAxisMetric {
-  metric: Metric;
-  label: string;
-  unit: string;
-}
-
-/** Um gráfico de dispersão: `y` em função de `x` (ver `scatterPoints`/`ScatterChartCard`). */
-interface ScatterChartConfig {
+export interface ComparisonPair {
   key: string;
   title: string;
-  color: string;
-  x: ScatterAxisMetric;
-  y: ScatterAxisMetric;
+  series: [PairMetric, PairMetric];
 }
 
-const TEMPERATURE_AXIS: ScatterAxisMetric = {
+const TEMPERATURE: PairMetric = {
   metric: "temperature_c",
   label: "Temperatura",
+  color: "var(--sensor-temperature)",
   unit: "°C",
 };
+const HUMIDITY: PairMetric = {
+  metric: "humidity_pct",
+  label: "Umidade",
+  color: "var(--sensor-humidity)",
+  unit: "%",
+};
+const PRESSURE: PairMetric = {
+  metric: "pressure_hpa",
+  label: "Pressão",
+  color: "var(--sensor-pressure)",
+  unit: "hPa",
+};
 
-/**
- * Dispersões pedidas pelo usuário (2026-10-02): temperatura no eixo Y,
- * umidade/pressão no eixo X. Mesmas métricas de `METRIC_CHARTS` → leem o
- * MESMO `resultByMetric`, sem request extra (mesma regra de `COMBO_CHARTS`).
- *
- * Pontos em `--foreground` (pedido do usuário, 2026-10-02: "pontos
- * brancos") — branco no tema escuro; no claro vira quase preto, já que
- * branco puro sumiria no fundo branco do card.
- */
-const SCATTER_CHARTS: ScatterChartConfig[] = [
-  {
-    key: "scatter-temperature-humidity",
-    title: "Temperatura × Umidade",
-    color: "var(--foreground)",
-    x: { metric: "humidity_pct", label: "Umidade", unit: "%" },
-    y: TEMPERATURE_AXIS,
-  },
-  {
-    key: "scatter-temperature-pressure",
-    title: "Temperatura × Pressão",
-    color: "var(--foreground)",
-    x: { metric: "pressure_hpa", label: "Pressão", unit: "hPa" },
-    y: TEMPERATURE_AXIS,
-  },
-];
-
-/**
- * Colunas da seção "Comparativos" (pedido do usuário, 2026-10-02): cada
- * coluna junta o combo ao longo do tempo (em cima) com a dispersão das
- * MESMAS 2 grandezas (embaixo) — Umidade numa coluna, Pressão na outra.
- */
-const COMPARISON_COLUMNS: { combo: ComboChartConfig; scatter: ScatterChartConfig }[] = [
-  { combo: COMBO_CHARTS[0]!, scatter: SCATTER_CHARTS[0]! },
-  { combo: COMBO_CHARTS[1]!, scatter: SCATTER_CHARTS[1]! },
+export const COMPARISON_PAIRS: ComparisonPair[] = [
+  { key: "temperature-humidity", title: "Temperatura e Umidade", series: [TEMPERATURE, HUMIDITY] },
+  { key: "temperature-pressure", title: "Temperatura e Pressão", series: [TEMPERATURE, PRESSURE] },
+  { key: "humidity-pressure", title: "Umidade e Pressão", series: [HUMIDITY, PRESSURE] },
 ];
 
 type MetricSeriesResult = UseQueryResult<SeriesResponse, Error>;
 
-/** As 2 séries de um combo, já no shape de `ChartCard` (uma por métrica, unidade própria — ver `ComboSeriesConfig.unit`). Métrica sem dado (query pendente/vazia) contribui `[]` (mesma regra de `bucketsToLineSeries`), então um combo com só 1 das 2 métricas preenchida ainda desenha aquela série sozinha (não é tratado como card inteiro vazio, a não ser que AS DUAS estejam vazias — `isEmptySeries` do `ChartCard` já cobre isso). */
-function comboSeries(
-  config: ComboChartConfig,
+/** As 2 séries (médias) de um par, cada uma com unidade e limites próprios. */
+function pairLineSeries(
+  pair: ComparisonPair,
   resultByMetric: Map<Metric, MetricSeriesResult>,
 ): ChartSeries[] {
-  return config.series.flatMap((s) =>
-    bucketsToLineSeries(resultByMetric.get(s.metric)?.data, s.label, s.color, s.unit),
+  return pair.series.flatMap((s) =>
+    bucketsToLineSeries(resultByMetric.get(s.metric)?.data, s.label, s.color, {
+      unit: s.unit,
+      bounds: METRIC_BOUNDS[s.metric],
+    }),
   );
 }
 
-/** Um combo está "carregando" enquanto QUALQUER uma das suas 2 métricas ainda não tem resultado nem cache anterior (`isPending`, mesmo critério usado por `METRIC_CHARTS`/`ChartCardSkeleton` abaixo). */
-function comboIsPending(
-  config: ComboChartConfig,
-  resultByMetric: Map<Metric, MetricSeriesResult>,
-): boolean {
-  return config.series.some((s) => resultByMetric.get(s.metric)?.isPending ?? true);
-}
-
-/** Eixo X / rótulos de tooltip do combo vêm da PRIMEIRA métrica do card (`series[0]`) — escolha arbitrária mas consistente (documentada aqui): as 2 métricas de um combo vêm da MESMA estação/ingestão por bucket (`PROJECT.md`), então os buckets tendem a estar alinhados; se uma métrica tiver um gap que a outra não tem, o rótulo de tempo daquele ponto específico pode desalinhar — limitação preexistente de `pointLabels` ser por CARD, não por série (fora do escopo desta tarefa, que pediu resolver o gap de UNIDADE, não o de rótulo). */
-function comboXLabels(
-  config: ComboChartConfig,
-  resultByMetric: Map<Metric, MetricSeriesResult>,
-): string[] {
-  return buildXLabels(resultByMetric.get(config.series[0].metric)?.data);
-}
-
-function comboPointLabels(
-  config: ComboChartConfig,
-  resultByMetric: Map<Metric, MetricSeriesResult>,
-): string[] {
-  return bucketsToPointLabels(resultByMetric.get(config.series[0].metric)?.data, "avg");
+/** As 2 séries (leituras brutas) de um par. */
+function pairDotSeries(pair: ComparisonPair, readings: HistoryReading[]): ChartSeries[] {
+  return pair.series.flatMap((s) => readingsToDotSeries(readings, s.metric, s).series);
 }
 
 /**
- * Placeholder de carregamento inicial de UM `ChartCard` (T6.4 — spec.md edge
- * case "loading inicial → skeletons, não layout shift"). Mesma árvore de
- * classes do `ChartCard` real (`Card`, padding, título) — só o corpo
- * (`ChartContainer` de `h-36`) vira um `Skeleton` do mesmo tamanho, pra não pular o
- * layout quando os dados chegam. O título é mostrado desde já (não depende
- * de dado nenhum), igual ao cabeçalho do `ChartCard` real.
+ * Placeholder de carregamento inicial de UM card (spec.md: "loading inicial
+ * → skeletons, não layout shift"). Mesma árvore de classes do `ChartCard`.
  */
 function ChartCardSkeleton({ title }: { title: string }) {
   return (
@@ -629,47 +338,56 @@ function ChartCardSkeleton({ title }: { title: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <Skeleton className="h-36 w-full" />
+        <Skeleton className="h-40 w-full" />
       </CardContent>
     </Card>
   );
 }
 
-export interface ChartsSectionProps {
-  className?: string;
+function appliedFromPeriod(period: Period): AppliedRange | null {
+  return period.range === "custom"
+    ? { from: new Date(period.from), to: new Date(period.to) }
+    : null;
 }
 
-/** Seletor de período (`?range=`) + um `ChartCard` por métrica, com skeleton/banner de reconexão (F6 T6.3/T6.4). */
-export function ChartsSection({ className = "" }: ChartsSectionProps) {
-  const [range, setRange] = useState<Range>(() => getRangeFromSearch(window.location.search));
+export interface ChartsSectionProps {
+  className?: string;
+  /** "Agora" injetável para o calendário do personalizado (testes). */
+  now?: () => Date;
+}
 
+/** Seletor de período + gráficos por métrica + comparativos, com skeleton/banner de reconexão. */
+export function ChartsSection({ className = "", now }: ChartsSectionProps) {
+  const [period, setPeriod] = useState<Period>(() => getPeriodFromSearch(window.location.search));
+  const [selectorValue, setSelectorValue] = useState<string>(period.range);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [applied, setApplied] = useState<AppliedRange | null>(() => appliedFromPeriod(period));
+
+  const seriesWindow = periodToWindow(period);
   const seriesResults = useQueries({
-    queries: METRICS.map((metric) => seriesQueryOptions(metric, range)),
+    queries: METRICS.map((metric) => seriesQueryOptions(metric, seriesWindow)),
   });
 
-  // Índice por `metric` dos MESMOS 5 resultados acima — os cards de métrica
-  // única, os combos (`COMBO_CHARTS`) e as dispersões leem daqui por nome de
-  // métrica (não por posição: os 2 cards de chuva usam a mesma query, e um
-  // combo mistura 2 métricas que não são "a próxima da lista"), sem nenhum
-  // `useQueries`/`useQuery` adicional (dedupe do React Query, ver docstring
-  // de `COMBO_CHARTS`).
+  // Índice por métrica dos MESMOS resultados acima — cards, pares e totais
+  // leem daqui pelo nome da métrica, sem nenhuma query extra.
   const resultByMetric = new Map<Metric, MetricSeriesResult>(
     METRICS.map((metric, index) => [metric, seriesResults[index]!]),
   );
 
-  // Banner de reconexão (UI-10): pelo menos uma métrica com a busca atual em
-  // erro, mas ainda com `data` em cache (a última série boa conhecida, via
-  // `placeholderData: keepPreviousData` de `seriesQueryOptions`) — nunca
-  // esconde os gráficos, só avisa que estão desatualizados.
+  // Leituras brutas dos gráficos de pontos: mesma janela já resolvida pela
+  // API de séries (a da temperatura), para pontos e linhas cobrirem o mesmo
+  // intervalo.
+  const reference = resultByMetric.get("temperature_c")?.data;
+  const raw = useRawReadings(reference?.from, reference?.to);
+
+  // Banner de reconexão (UI-10): erro na busca atual, mas ainda com o último
+  // dado bom em cache — nunca esconde os gráficos, só avisa.
   const anyStaleError = seriesResults.some((result) => result.isError && result.data !== undefined);
 
-  function handleRangeChange(value: string) {
-    if (!isRange(value)) {
-      return;
-    }
-
-    setRange(value);
-    const search = buildSearchWithRange(window.location.search, value);
+  function updatePeriod(next: Period) {
+    setPeriod(next);
+    setSelectorValue(next.range);
+    const search = buildSearchWithPeriod(window.location.search, next);
     window.history.replaceState(
       null,
       "",
@@ -677,9 +395,55 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
     );
   }
 
+  function handleSelectorChange(value: string) {
+    if (value === "custom") {
+      setSelectorValue("custom");
+      setCalendarOpen(true);
+      return;
+    }
+    const preset = PRESET_RANGES.find((range) => range === value);
+    if (preset) {
+      setCalendarOpen(false);
+      updatePeriod({ range: preset });
+    }
+  }
+
+  function handleCalendarOpenChange(open: boolean) {
+    setCalendarOpen(open);
+    // Fechou sem aplicar: o seletor volta ao período em vigor.
+    if (!open && period.range !== "custom") {
+      setSelectorValue(period.range);
+    }
+  }
+
+  function handleApply(from: string, to: string, days: AppliedRange) {
+    setApplied(days);
+    setCalendarOpen(false);
+    updatePeriod({ range: "custom", from, to });
+  }
+
+  const totalLabel = periodLabel(period, "short");
+
   return (
     <section className={`flex flex-col gap-4 ${className}`.trim()}>
-      <PeriodSelector options={RANGE_OPTIONS} value={range} onChange={handleRangeChange} />
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <PeriodSelector
+          options={RANGE_OPTIONS}
+          value={selectorValue}
+          onChange={handleSelectorChange}
+        />
+        {selectorValue === "custom" ? (
+          <CustomRangePopover
+            maxDays={DASHBOARD_MAX_RANGE_DAYS}
+            maxLabel="3 meses"
+            open={calendarOpen}
+            onOpenChange={handleCalendarOpenChange}
+            applied={applied}
+            onApply={handleApply}
+            now={now}
+          />
+        ) : null}
+      </div>
       <ConnectionBanner show={anyStaleError} />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {METRIC_CHARTS.map((config) => {
@@ -689,19 +453,14 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
             return <ChartCardSkeleton key={config.title} title={config.title} />;
           }
 
-          const field = config.aggregation ?? "avg";
-          const series = config.total
-            ? bucketsToTotalSeries(result.data, config.title, config.color)
-            : config.variant === "bar"
-              ? bucketsToBarSeries(result.data, config.title, config.color)
-              : bucketsToLineSeries(result.data, config.title, config.color, undefined, field);
-
-          // Barra de total: um único ponto, rotulado com a janela e sem
-          // rótulos de eixo X (não há "início/fim" a mostrar numa barra só).
-          const xLabels = config.total ? [] : buildXLabels(result.data);
-          const pointLabels = config.total
-            ? [TOTAL_PERIOD_LABELS[range]]
-            : bucketsToPointLabels(result.data, field);
+          const series =
+            config.variant === "total"
+              ? bucketsToTotalSeries(result.data, config.title, config.color)
+              : config.variant === "bar"
+                ? bucketsToBarSeries(result.data, config.title, config.color)
+                : bucketsToLineSeries(result.data, config.title, config.color, {
+                    bounds: METRIC_BOUNDS[config.metric],
+                  });
 
           return (
             <ChartCard
@@ -709,49 +468,50 @@ export function ChartsSection({ className = "" }: ChartsSectionProps) {
               title={config.title}
               variant={config.variant}
               series={series}
-              xLabels={xLabels}
-              pointLabels={pointLabels}
+              domain={seriesDomain(result.data)}
+              granularity={result.data?.bucket ?? "hour"}
               unit={config.unit}
+              totalLabel={config.variant === "total" ? totalLabel : undefined}
             />
           );
         })}
       </div>
 
-      {/* "Comparativos" — os combos (2 métricas por card, ver
-          `COMBO_CHARTS`) e as dispersões (`SCATTER_CHARTS`), numa seção própria abaixo do grid de métrica
-          única, com um heading (`<h2>`, mesmo estilo de seção usado em
-          `DemoGallery.tsx`) pra não confundir "métrica única" com
-          "comparativo". 2 colunas, não 3 (pedido do usuário, 2026-10-02:
-          são 4 cards) — uma por `COMPARISON_COLUMNS`, combo em cima e
-          dispersão embaixo; em 1 coluna (mobile) os pares seguem juntos. */}
+      {/* "Comparativos": 3 pares de grandezas, cada um em 2 cards — médias
+          em linhas (em cima) e leituras brutas em pontos (embaixo), tudo
+          ao longo do tempo (pedido do usuário, 2026-11-24). */}
       <h2 className="font-heading text-base font-semibold">Comparativos</h2>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {COMPARISON_COLUMNS.map(({ combo, scatter }) => {
-          const yResult = resultByMetric.get(scatter.y.metric);
-          const xResult = resultByMetric.get(scatter.x.metric);
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {COMPARISON_PAIRS.map((pair) => {
+          const linesPending = pair.series.some(
+            (s) => resultByMetric.get(s.metric)?.isPending ?? true,
+          );
+          const pairReference = resultByMetric.get(pair.series[0].metric)?.data;
+          // Falha ao buscar as leituras: card vazio (EmptyState), não skeleton eterno.
+          const dots = raw.data ? pairDotSeries(pair, raw.data.readings) : raw.isError ? [] : null;
 
           return (
-            <div key={combo.key} data-testid="comparison-column" className="flex flex-col gap-3">
-              {comboIsPending(combo, resultByMetric) ? (
-                <ChartCardSkeleton title={combo.title} />
+            <div key={pair.key} data-testid="comparison-column" className="flex flex-col gap-3">
+              {linesPending ? (
+                <ChartCardSkeleton title={pair.title} />
               ) : (
                 <ChartCard
-                  title={combo.title}
+                  title={pair.title}
                   variant="line"
-                  series={comboSeries(combo, resultByMetric)}
-                  xLabels={comboXLabels(combo, resultByMetric)}
-                  pointLabels={comboPointLabels(combo, resultByMetric)}
+                  series={pairLineSeries(pair, resultByMetric)}
+                  domain={seriesDomain(pairReference)}
+                  granularity={pairReference?.bucket ?? "hour"}
                 />
               )}
-              {!yResult || !xResult || yResult.isPending || xResult.isPending ? (
-                <ChartCardSkeleton title={scatter.title} />
+              {dots === null ? (
+                <ChartCardSkeleton title={pair.title} />
               ) : (
-                <ScatterChartCard
-                  title={scatter.title}
-                  color={scatter.color}
-                  points={scatterPoints(yResult.data, xResult.data)}
-                  xAxis={scatter.x}
-                  yAxis={scatter.y}
+                <ChartCard
+                  title={pair.title}
+                  variant="dots"
+                  series={dots}
+                  domain={seriesDomain(reference)}
+                  granularity="raw"
                 />
               )}
             </div>

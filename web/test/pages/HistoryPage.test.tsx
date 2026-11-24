@@ -48,8 +48,8 @@ describe("HistoryPage", () => {
   it("carrega e lista as leituras do endpoint /readings", async () => {
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
-    expect(screen.getByText("61.2")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("24,7")).toBeInTheDocument());
+    expect(screen.getByText("61,2")).toBeInTheDocument();
   });
 
   it("HIST-04: intervalo sem dados mostra EmptyState", async () => {
@@ -65,7 +65,7 @@ describe("HistoryPage", () => {
   it("botões de exportar apontam para /readings/export com o intervalo resolvido e o format certo", async () => {
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("24,7")).toBeInTheDocument());
 
     const csvLink = screen.getByRole("link", { name: /exportar csv/i });
     const xlsxLink = screen.getByRole("link", { name: /exportar xlsx/i });
@@ -84,7 +84,7 @@ describe("HistoryPage", () => {
     let capturedSearch: URLSearchParams | undefined;
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("24,7")).toBeInTheDocument());
 
     server.use(
       http.get("/api/v1/readings", ({ request }) => {
@@ -110,7 +110,7 @@ describe("HistoryPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("24,7")).toBeInTheDocument());
 
     let capturedSearch: URLSearchParams | undefined;
     server.use(
@@ -122,7 +122,7 @@ describe("HistoryPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Próxima" }));
 
-    await waitFor(() => expect(screen.getByText("20.1")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("20,1")).toBeInTheDocument());
     expect(capturedSearch?.get("page")).toBe("2");
   });
 
@@ -155,7 +155,7 @@ describe("HistoryPage", () => {
   it("F8 achado 2: durante o refetch de um novo intervalo, o export não aponta para o intervalo antigo (fica desabilitado)", async () => {
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("24,7")).toBeInTheDocument());
 
     const oldCsvHref = screen.getByRole("link", { name: /exportar csv/i }).getAttribute("href");
     expect(oldCsvHref).toContain(encodeURIComponent(historyFixture.from));
@@ -192,7 +192,7 @@ describe("HistoryPage", () => {
       vi.mocked(exportHistoryToPdf).mockResolvedValue();
       renderPage();
 
-      await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("24,7")).toBeInTheDocument());
       fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
 
       await waitFor(() => expect(exportHistoryToPdf).toHaveBeenCalledTimes(1));
@@ -218,7 +218,7 @@ describe("HistoryPage", () => {
       vi.mocked(exportHistoryToPdf).mockRejectedValue(new Error("boom"));
       renderPage();
 
-      await waitFor(() => expect(screen.getByText("24.7")).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText("24,7")).toBeInTheDocument());
       fireEvent.click(screen.getByRole("button", { name: "Exportar PDF" }));
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/não foi possível gerar o pdf/i);
