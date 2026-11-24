@@ -4,7 +4,7 @@ import type {
   LatestReadingRow,
   ReadingRepository,
 } from "../repositories/reading-repository.js";
-import type { Metric, Range } from "../schemas/readings.js";
+import type { Metric, Range, SeriesWindow } from "../schemas/readings.js";
 
 export interface LatestReadingResult {
   station_id: string;
@@ -27,14 +27,22 @@ export interface SeriesBucketResult {
 
 export interface SeriesResult {
   metric: Metric;
-  range: Range;
+  /** Período pré-definido pedido, ou `"custom"` quando a janela veio de `from`/`to`. */
+  range: Range | "custom";
   bucket: BucketUnit;
+  /**
+   * Janela efetivamente consultada (ISO 8601 UTC). O frontend usa estes
+   * limites como domínio do eixo de tempo: um período sem leituras aparece
+   * como vazio no gráfico, em vez de o eixo encolher até a extensão dos dados.
+   */
+  from: string;
+  to: string;
   buckets: SeriesBucketResult[];
 }
 
 export interface ReadingsService {
   getLatest(stationId: string): Promise<LatestReadingResult>;
-  getSeries(stationId: string, metric: Metric, range: Range): Promise<SeriesResult>;
+  getSeries(stationId: string, metric: Metric, window: SeriesWindow): Promise<SeriesResult>;
 }
 
 const MS_PER_HOUR = 60 * 60 * 1000;
@@ -46,6 +54,13 @@ const RANGE_CONFIG: Record<Range, { lookbackMs: number; bucket: BucketUnit }> = 
   "7d": { lookbackMs: 7 * MS_PER_DAY, bucket: "hour" },
   "30d": { lookbackMs: 30 * MS_PER_DAY, bucket: "day" },
 };
+
+/**
+ * Intervalo personalizado de até `CUSTOM_HOURLY_MAX_DAYS` dias é agregado por
+ * hora (≤ 240 buckets, no máximo pouco mais que o preset de 7 dias); acima
+ * disso, por dia — mesma lógica de densidade dos presets (7d → hora, 30d → dia).
+ */
+export const CUSTOM_HOURLY_MAX_DAYS = 10;
 
 function toLatestResult(
   stationId: string,
@@ -103,17 +118,44 @@ class DefaultReadingsService implements ReadingsService {
     return toLatestResult(stationId, row, this.clock());
   }
 
-  async getSeries(stationId: string, metric: Metric, range: Range): Promise<SeriesResult> {
-    const { lookbackMs, bucket } = RANGE_CONFIG[range];
-    const since = new Date(this.clock().getTime() - lookbackMs);
+  async getSeries(stationId: string, metric: Metric, window: SeriesWindow): Promise<SeriesResult> {
+    const { range, since, until, bucket } = this.resolveWindow(window);
 
-    const rows = await this.repository.aggregate(stationId, metric, since, bucket);
+    const rows = await this.repository.aggregate(stationId, metric, since, until, bucket);
 
     return {
       metric,
       range,
       bucket,
+      from: since.toISOString(),
+      to: until.toISOString(),
       buckets: rows.map(toBucketResult),
+    };
+  }
+
+  private resolveWindow(window: SeriesWindow): {
+    range: Range | "custom";
+    since: Date;
+    until: Date;
+    bucket: BucketUnit;
+  } {
+    if ("range" in window) {
+      const { lookbackMs, bucket } = RANGE_CONFIG[window.range];
+      const until = this.clock();
+      return {
+        range: window.range,
+        since: new Date(until.getTime() - lookbackMs),
+        until,
+        bucket,
+      };
+    }
+
+    const spanMs = window.to.getTime() - window.from.getTime();
+    return {
+      range: "custom",
+      since: window.from,
+      until: window.to,
+      bucket: spanMs <= CUSTOM_HOURLY_MAX_DAYS * MS_PER_DAY ? "hour" : "day",
     };
   }
 }

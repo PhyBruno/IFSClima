@@ -15,6 +15,7 @@ class FakeReadingRepository implements ReadingRepository {
     stationId: string;
     metric: Metric;
     since: Date;
+    until: Date;
     bucketUnit: BucketUnit;
   }> = [];
 
@@ -32,9 +33,10 @@ class FakeReadingRepository implements ReadingRepository {
     stationId: string,
     metric: Metric,
     since: Date,
+    until: Date,
     bucketUnit: BucketUnit,
   ): Promise<AggregateBucketRow[]> {
-    this.aggregateCalls.push({ stationId, metric, since, bucketUnit });
+    this.aggregateCalls.push({ stationId, metric, since, until, bucketUnit });
     return this.aggregateResult;
   }
 }
@@ -117,7 +119,7 @@ describe("ReadingsService.getSeries (T4.3 — READ-05, READ-06, READ-08, READ-09
     const repo = new FakeReadingRepository();
     const service = createReadingsService(repo, () => NOW);
 
-    await service.getSeries("main", "temperature_c", "24h");
+    await service.getSeries("main", "temperature_c", { range: "24h" });
 
     expect(repo.aggregateCalls).toHaveLength(1);
     expect(repo.aggregateCalls[0]?.bucketUnit).toBe("hour");
@@ -128,7 +130,7 @@ describe("ReadingsService.getSeries (T4.3 — READ-05, READ-06, READ-08, READ-09
     const repo = new FakeReadingRepository();
     const service = createReadingsService(repo, () => NOW);
 
-    await service.getSeries("main", "temperature_c", "7d");
+    await service.getSeries("main", "temperature_c", { range: "7d" });
 
     expect(repo.aggregateCalls[0]?.bucketUnit).toBe("hour");
     expect(repo.aggregateCalls[0]?.since).toEqual(new Date("2026-07-16T15:00:00.000Z"));
@@ -138,7 +140,7 @@ describe("ReadingsService.getSeries (T4.3 — READ-05, READ-06, READ-08, READ-09
     const repo = new FakeReadingRepository();
     const service = createReadingsService(repo, () => NOW);
 
-    await service.getSeries("main", "temperature_c", "30d");
+    await service.getSeries("main", "temperature_c", { range: "30d" });
 
     expect(repo.aggregateCalls[0]?.bucketUnit).toBe("day");
     expect(repo.aggregateCalls[0]?.since).toEqual(new Date("2026-06-23T15:00:00.000Z"));
@@ -151,12 +153,14 @@ describe("ReadingsService.getSeries (T4.3 — READ-05, READ-06, READ-08, READ-09
     ];
     const service = createReadingsService(repo, () => NOW);
 
-    const result = await service.getSeries("main", "temperature_c", "24h");
+    const result = await service.getSeries("main", "temperature_c", { range: "24h" });
 
     expect(result).toEqual({
       metric: "temperature_c",
       range: "24h",
       bucket: "hour",
+      from: "2026-07-22T15:00:00.000Z",
+      to: "2026-07-23T15:00:00.000Z",
       buckets: [{ t: "2026-07-23T14:00:00.000Z", avg: 22, min: 20, max: 24, sum: null }],
     });
   });
@@ -166,7 +170,7 @@ describe("ReadingsService.getSeries (T4.3 — READ-05, READ-06, READ-08, READ-09
     repo.aggregateResult = [];
     const service = createReadingsService(repo, () => NOW);
 
-    const result = await service.getSeries("main", "temperature_c", "24h");
+    const result = await service.getSeries("main", "temperature_c", { range: "24h" });
 
     expect(result.buckets).toEqual([]);
   });
@@ -178,7 +182,7 @@ describe("ReadingsService.getSeries (T4.3 — READ-05, READ-06, READ-08, READ-09
     ];
     const service = createReadingsService(repo, () => NOW);
 
-    const result = await service.getSeries("main", "rain_mm", "24h");
+    const result = await service.getSeries("main", "rain_mm", { range: "24h" });
 
     expect(result.buckets[0]?.sum).toBe(4);
   });
@@ -191,8 +195,47 @@ describe("ReadingsService.getSeries (T4.3 — READ-05, READ-06, READ-08, READ-09
     ];
     const service = createReadingsService(repo, () => NOW);
 
-    const result = await service.getSeries("main", "temperature_c", "24h");
+    const result = await service.getSeries("main", "temperature_c", { range: "24h" });
 
     expect(result.buckets).toHaveLength(2);
+  });
+
+  it("preset: consulta até 'agora' (until = clock)", async () => {
+    const repo = new FakeReadingRepository();
+    const service = createReadingsService(repo, () => NOW);
+
+    await service.getSeries("main", "temperature_c", { range: "24h" });
+
+    expect(repo.aggregateCalls[0]?.until).toEqual(NOW);
+  });
+
+  it("custom ≤ 10 dias: usa from/to pedidos, bucket 'hour' e range 'custom'", async () => {
+    const repo = new FakeReadingRepository();
+    const service = createReadingsService(repo, () => NOW);
+    const from = new Date("2026-07-01T03:00:00.000Z");
+    const to = new Date("2026-07-11T02:59:59.999Z");
+
+    const result = await service.getSeries("main", "temperature_c", { from, to });
+
+    expect(repo.aggregateCalls[0]).toMatchObject({ since: from, until: to, bucketUnit: "hour" });
+    expect(result).toMatchObject({
+      range: "custom",
+      bucket: "hour",
+      from: "2026-07-01T03:00:00.000Z",
+      to: "2026-07-11T02:59:59.999Z",
+    });
+  });
+
+  it("custom > 10 dias: bucket 'day'", async () => {
+    const repo = new FakeReadingRepository();
+    const service = createReadingsService(repo, () => NOW);
+
+    const result = await service.getSeries("main", "temperature_c", {
+      from: new Date("2026-06-01T03:00:00.000Z"),
+      to: new Date("2026-07-01T02:59:59.999Z"),
+    });
+
+    expect(repo.aggregateCalls[0]?.bucketUnit).toBe("day");
+    expect(result.bucket).toBe("day");
   });
 });

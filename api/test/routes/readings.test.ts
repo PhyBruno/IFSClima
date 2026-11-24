@@ -129,12 +129,14 @@ describe("GET /api/v1/readings/latest e /series (T4.4 — integração, Postgres
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({
+      expect(response.json()).toMatchObject({
         metric: "temperature_c",
         range: "24h",
         bucket: "hour",
         buckets: [],
       });
+      const body = response.json() as { from: string; to: string };
+      expect(new Date(body.to).getTime() - new Date(body.from).getTime()).toBe(24 * 60 * 60 * 1000);
     });
 
     it("range=24h agrega por hora após ingestão", async () => {
@@ -191,6 +193,42 @@ describe("GET /api/v1/readings/latest e /series (T4.4 — integração, Postgres
       expect(response.statusCode).toBe(200);
       const body = response.json() as { buckets: Array<{ sum: number }> };
       expect(body.buckets[0]?.sum).toBe(4);
+    });
+
+    it("from/to: janela personalizada → range 'custom' e só leituras dentro dela", async () => {
+      await ingest(app, {
+        station_id: "main",
+        readings: [
+          reading({ timestamp: minutesAgo(300), temperature_c: 10 }),
+          reading({ timestamp: minutesAgo(30), temperature_c: 30 }),
+        ],
+      });
+      const from = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+      const to = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/readings/series?metric=temperature_c&from=${from}&to=${to}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as {
+        range: string;
+        from: string;
+        to: string;
+        buckets: Array<{ avg: number }>;
+      };
+      expect(body).toMatchObject({ range: "custom", from, to });
+      expect(body.buckets.map((b) => b.avg)).toEqual([10]);
+    });
+
+    it("range junto com from/to → 400", async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/v1/readings/series?metric=temperature_c&range=24h&from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z",
+      });
+
+      expect(response.statusCode).toBe(400);
     });
 
     it("define Cache-Control: no-store", async () => {

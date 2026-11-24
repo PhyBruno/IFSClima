@@ -47,6 +47,7 @@ class FakeReadingRepository implements ReadingRepository {
     _stationId: string,
     _metric: Metric,
     _since: Date,
+    _until: Date,
     _bucketUnit: BucketUnit,
   ): Promise<AggregateBucketRow[]> {
     throw new Error("not used by rate-limit tests");
@@ -56,7 +57,12 @@ class FakeReadingRepository implements ReadingRepository {
     throw new Error("not used by rate-limit tests");
   }
 
-  streamRange(_stationId: string, _from: Date, _to: Date, _order: Order): AsyncIterable<ReadingRow> {
+  streamRange(
+    _stationId: string,
+    _from: Date,
+    _to: Date,
+    _order: Order,
+  ): AsyncIterable<ReadingRow> {
     throw new Error("not used by rate-limit tests");
   }
 }

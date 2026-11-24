@@ -36,7 +36,7 @@ describe("seriesQuerySchema (T4.1 — READ-07)", () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data).toEqual({ metric: "temperature_c", range: "24h" });
+      expect(result.data).toEqual({ metric: "temperature_c", window: { range: "24h" } });
     }
   });
 
@@ -54,8 +54,64 @@ describe("seriesQuerySchema (T4.1 — READ-07)", () => {
     expect(seriesQuerySchema.safeParse({ range: "24h" }).success).toBe(false);
   });
 
-  it("rejeita quando range está ausente", () => {
+  it("rejeita quando range e from/to estão ausentes", () => {
     expect(seriesQuerySchema.safeParse({ metric: "temperature_c" }).success).toBe(false);
+  });
+
+  it("aceita from/to e converte em janela de Date", () => {
+    const result = seriesQuerySchema.safeParse({
+      metric: "temperature_c",
+      from: "2026-10-25T03:00:00.000Z",
+      to: "2026-11-25T02:59:59.999Z",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.window).toEqual({
+        from: new Date("2026-10-25T03:00:00.000Z"),
+        to: new Date("2026-11-25T02:59:59.999Z"),
+      });
+    }
+  });
+
+  it("rejeita range junto com from/to", () => {
+    expect(
+      seriesQuerySchema.safeParse({
+        metric: "temperature_c",
+        range: "24h",
+        from: "2026-10-25T03:00:00.000Z",
+        to: "2026-11-25T02:59:59.999Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([[{ from: "2026-10-25T03:00:00.000Z" }], [{ to: "2026-10-25T03:00:00.000Z" }]])(
+    "rejeita from/to incompleto (%o)",
+    (partial) => {
+      expect(seriesQuerySchema.safeParse({ metric: "temperature_c", ...partial }).success).toBe(
+        false,
+      );
+    },
+  );
+
+  it("rejeita from > to", () => {
+    expect(
+      seriesQuerySchema.safeParse({
+        metric: "temperature_c",
+        from: "2026-11-25T03:00:00.000Z",
+        to: "2026-10-25T03:00:00.000Z",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejeita intervalo maior que 366 dias", () => {
+    expect(
+      seriesQuerySchema.safeParse({
+        metric: "temperature_c",
+        from: "2024-01-01T00:00:00.000Z",
+        to: "2026-01-01T00:00:00.000Z",
+      }).success,
+    ).toBe(false);
   });
 });
 

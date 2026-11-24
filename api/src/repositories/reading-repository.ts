@@ -86,14 +86,16 @@ export interface ReadingRepository {
   /** Leitura de maior `timestamp` da estação, ou `null` se não há nenhuma (READ-01, READ-03). */
   findLatest(stationId: string): Promise<LatestReadingRow | null>;
   /**
-   * Agrega `metric` da estação desde `since` (inclusive), agrupado por
-   * `bucketUnit` (`date_trunc`). `metric` só indexa a whitelist
+   * Agrega `metric` da estação em `[since, until]` (inclusive), agrupado por
+   * `bucketUnit` (`date_trunc` no fuso da estação — ver
+   * `DEFAULT_STATION_TIMEZONE`). `metric` só indexa a whitelist
    * `METRIC_COLUMNS` — nunca é interpolada em SQL cru (design.md — Segurança).
    */
   aggregate(
     stationId: string,
     metric: Metric,
     since: Date,
+    until: Date,
     bucketUnit: BucketUnit,
   ): Promise<AggregateBucketRow[]>;
   /**
@@ -133,9 +135,21 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+/**
+ * Fuso da estação (IFSC Jaraguá do Sul). Os buckets DIÁRIOS precisam ser o
+ * dia LOCAL (00h–24h em Brasília), não o dia UTC (21h–21h): a máxima do dia,
+ * a chuva do dia e a média diária só fazem sentido físico no dia civil de
+ * quem observa. A sessão do banco continua em UTC (`db/client.ts`); o fuso
+ * entra só no `date_trunc(unit, ts, tz)` (Postgres 16).
+ */
+export const DEFAULT_STATION_TIMEZONE = "America/Sao_Paulo";
+
 /** Implementação Drizzle/Postgres de `ReadingRepository` (T3.2). */
 export class DrizzleReadingRepository implements ReadingRepository {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly timeZone: string = DEFAULT_STATION_TIMEZONE,
+  ) {}
 
   async ensureStation(id: string): Promise<void> {
     await this.db
@@ -196,6 +210,7 @@ export class DrizzleReadingRepository implements ReadingRepository {
     stationId: string,
     metric: Metric,
     since: Date,
+    until: Date,
     bucketUnit: BucketUnit,
   ): Promise<AggregateBucketRow[]> {
     const column = METRIC_COLUMNS[metric];
@@ -209,13 +224,15 @@ export class DrizzleReadingRepository implements ReadingRepository {
       max: number | string | null;
       sum: number | string | null;
     }>(sql`
-      SELECT date_trunc(${bucketUnit}, ${readings.timestamp}) AS bucket,
+      SELECT date_trunc(${bucketUnit}, ${readings.timestamp}, ${this.timeZone}) AS bucket,
              avg(${column}) AS avg,
              min(${column}) AS min,
              max(${column}) AS max,
              ${sumExpr} AS sum
       FROM ${readings}
-      WHERE ${readings.stationId} = ${stationId} AND ${readings.timestamp} >= ${since}
+      WHERE ${readings.stationId} = ${stationId}
+        AND ${readings.timestamp} >= ${since}
+        AND ${readings.timestamp} <= ${until}
       GROUP BY bucket
       ORDER BY bucket
     `);
@@ -253,7 +270,10 @@ export class DrizzleReadingRepository implements ReadingRepository {
         .orderBy(orderBy, order === "asc" ? asc(readings.id) : desc(readings.id))
         .limit(pageSize)
         .offset((page - 1) * pageSize),
-      this.db.select({ count: sql<number>`count(*)` }).from(readings).where(whereClause),
+      this.db
+        .select({ count: sql<number>`count(*)` })
+        .from(readings)
+        .where(whereClause),
     ]);
 
     return { rows, total: Number(countRows[0]?.count ?? 0) };

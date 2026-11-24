@@ -230,6 +230,8 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
   });
 
   describe("aggregate", () => {
+    const UNTIL = new Date("2026-12-31T23:59:59.999Z");
+
     beforeEach(async () => {
       await repository.ensureStation("main");
     });
@@ -245,6 +247,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
         "main",
         "temperature_c",
         new Date("2026-07-23T00:00:00.000Z"),
+        UNTIL,
         "hour",
       );
 
@@ -266,7 +269,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
       ]);
     });
 
-    it("agrupa por dia (READ-06)", async () => {
+    it("agrupa por dia LOCAL da estação (America/Sao_Paulo), não pelo dia UTC (READ-06)", async () => {
       await repository.insertIgnoreConflicts([
         row({ timestamp: new Date("2026-07-23T01:00:00.000Z"), temperatureC: 10 }),
         row({ timestamp: new Date("2026-07-23T23:00:00.000Z"), temperatureC: 20 }),
@@ -277,12 +280,35 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
         "main",
         "temperature_c",
         new Date("2026-07-01T00:00:00.000Z"),
+        UNTIL,
         "day",
       );
 
+      // 23T01:00Z = 22/07 22h local; 23T23:00Z = 23/07 20h; 24T05:00Z = 24/07 02h.
+      // Cada bucket começa na meia-noite local (03:00Z em UTC-3).
       expect(buckets).toEqual([
-        { bucket: new Date("2026-07-23T00:00:00.000Z"), avg: 15, min: 10, max: 20, sum: null },
-        { bucket: new Date("2026-07-24T00:00:00.000Z"), avg: 30, min: 30, max: 30, sum: null },
+        { bucket: new Date("2026-07-22T03:00:00.000Z"), avg: 10, min: 10, max: 10, sum: null },
+        { bucket: new Date("2026-07-23T03:00:00.000Z"), avg: 20, min: 20, max: 20, sum: null },
+        { bucket: new Date("2026-07-24T03:00:00.000Z"), avg: 30, min: 30, max: 30, sum: null },
+      ]);
+    });
+
+    it("ignora leituras depois de `until` (janela personalizada)", async () => {
+      await repository.insertIgnoreConflicts([
+        row({ timestamp: new Date("2026-07-23T14:10:00.000Z"), temperatureC: 20 }),
+        row({ timestamp: new Date("2026-07-23T16:10:00.000Z"), temperatureC: 30 }),
+      ]);
+
+      const buckets = await repository.aggregate(
+        "main",
+        "temperature_c",
+        new Date("2026-07-23T00:00:00.000Z"),
+        new Date("2026-07-23T15:00:00.000Z"),
+        "hour",
+      );
+
+      expect(buckets).toEqual([
+        { bucket: new Date("2026-07-23T14:00:00.000Z"), avg: 20, min: 20, max: 20, sum: null },
       ]);
     });
 
@@ -296,6 +322,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
         "main",
         "rain_mm",
         new Date("2026-07-23T00:00:00.000Z"),
+        UNTIL,
         "hour",
       );
 
@@ -313,6 +340,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
         "main",
         "temperature_c",
         new Date("2026-07-23T00:00:00.000Z"),
+        UNTIL,
         "hour",
       );
 
@@ -334,6 +362,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
         "main",
         "temperature_c",
         new Date("2026-07-23T00:00:00.000Z"),
+        UNTIL,
         "hour",
       );
 
@@ -355,6 +384,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
         "main",
         "rain_mm",
         new Date("2026-07-23T00:00:00.000Z"),
+        UNTIL,
         "hour",
       );
 
@@ -535,12 +565,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
       ]);
 
       const rows = await collect(
-        repository.streamRange(
-          "main",
-          new Date(base),
-          new Date(base + 120_000),
-          "asc",
-        ),
+        repository.streamRange("main", new Date(base), new Date(base + 120_000), "asc"),
       );
 
       expect(rows.map((r) => r.temperatureC)).toEqual([1, 2, 3]);
@@ -555,12 +580,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
       ]);
 
       const rows = await collect(
-        repository.streamRange(
-          "main",
-          new Date(base),
-          new Date(base + 120_000),
-          "desc",
-        ),
+        repository.streamRange("main", new Date(base), new Date(base + 120_000), "desc"),
       );
 
       expect(rows.map((r) => r.temperatureC)).toEqual([3, 2, 1]);
@@ -576,12 +596,7 @@ describe("DrizzleReadingRepository (T3.2 — ING-02, ING-09, DB-01)", () => {
       );
 
       const rows = await collect(
-        repository.streamRange(
-          "main",
-          new Date(base),
-          new Date(base + (total - 1) * 1000),
-          "asc",
-        ),
+        repository.streamRange("main", new Date(base), new Date(base + (total - 1) * 1000), "asc"),
       );
 
       expect(rows).toHaveLength(total);

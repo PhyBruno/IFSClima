@@ -41,7 +41,7 @@ export async function readingsRoute(
     const result = await readingsService.getSeries(
       stationId,
       parsed.data.metric,
-      parsed.data.range,
+      parsed.data.window,
     );
 
     return reply.header("Cache-Control", "no-store").send(result);

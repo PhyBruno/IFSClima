@@ -27,7 +27,7 @@ export type ExportFormat = z.infer<typeof exportFormatSchema>;
  * tipos de Input/Output distintos de cada campo com `.default(...)`,
  * alargando os campos default para `T | undefined` no tipo inferido.
  */
-function checkDateRange(value: { from?: string; to?: string }, ctx: z.RefinementCtx): void {
+export function checkDateRange(value: { from?: string; to?: string }, ctx: z.RefinementCtx): void {
   if (value.from === undefined || value.to === undefined) {
     return;
   }

@@ -56,8 +56,8 @@ function lazyDrizzleReadingRepository(): ReadingRepository {
     ensureStation: (id) => resolve().ensureStation(id),
     insertIgnoreConflicts: (rows) => resolve().insertIgnoreConflicts(rows),
     findLatest: (stationId) => resolve().findLatest(stationId),
-    aggregate: (stationId, metric, since, bucketUnit) =>
-      resolve().aggregate(stationId, metric, since, bucketUnit),
+    aggregate: (stationId, metric, since, until, bucketUnit) =>
+      resolve().aggregate(stationId, metric, since, until, bucketUnit),
     findRange: (params) => resolve().findRange(params),
     streamRange: (stationId, from, to, order) => resolve().streamRange(stationId, from, to, order),
   };
