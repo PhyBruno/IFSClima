@@ -87,6 +87,24 @@ describe("renderReportToPdf", () => {
     expect(save).toHaveBeenCalledWith("rel.pdf");
   });
 
+  it("appendPages desenha folhas extras no mesmo PDF ANTES de salvar (tabela do Histórico em texto)", async () => {
+    const order: string[] = [];
+    save.mockImplementation(() => order.push("save"));
+    const appendPages = vi.fn(async () => {
+      order.push("append");
+    });
+    const exported = renderReportToPdf(report(1), {
+      fileName: "rel.pdf",
+      title: "Relatório",
+      appendPages,
+    });
+    await fireImageEvents("load");
+    await exported;
+
+    expect(appendPages).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["append", "save"]);
+  });
+
   it("remove o contêiner fora da tela depois de exportar, mesmo se a captura falhar", async () => {
     html2canvasMock.mockRejectedValue(new Error("canvas"));
     const before = document.body.children.length;

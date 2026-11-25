@@ -8,10 +8,14 @@ import {
   getMetricMeta,
   paginate,
   readingsToPoints,
+  sampleEvery,
   seriesToPoints,
+  summarizeRain,
   summarizeReadings,
   summarizeSeries,
+  withGaps,
 } from "../../src/pdf/reportData";
+import type { HistoryReading } from "../../src/api-client";
 import { historyFixture, rainSeriesFixture, seriesFixture } from "../fixtures/readings";
 
 describe("reportData", () => {
@@ -71,6 +75,67 @@ describe("reportData", () => {
     expect(seriesToPoints(undefined)).toEqual([]);
   });
 
+  it("seriesToPoints posiciona cada bucket no CENTRO do intervalo e interrompe o traço onde falta bucket", () => {
+    const gappy = {
+      ...seriesFixture,
+      buckets: [
+        { t: "2026-07-23T10:00:00.000Z", avg: 20, min: 20, max: 20, sum: null },
+        { t: "2026-07-23T14:00:00.000Z", avg: 24, min: 24, max: 24, sum: null },
+      ],
+    };
+    const points = seriesToPoints(gappy);
+
+    expect(points[0]!.t).toBe(Date.parse("2026-07-23T10:30:00.000Z"));
+    expect(points.map((p) => p.v)).toEqual([20, null, 24]);
+  });
+
+  describe("summarizeRain (resumo físico da chuva)", () => {
+    const at = (iso: string, rain: number | null): HistoryReading => ({
+      timestamp: iso,
+      temperature_c: 20,
+      humidity_pct: 90,
+      pressure_hpa: 1010,
+      rain_mm: rain,
+      uv_index: null,
+    });
+
+    it("total, maior volume numa hora e dias com chuva", () => {
+      const summary = summarizeRain([
+        at("2026-07-23T14:00:00.000Z", 0.4),
+        at("2026-07-23T14:15:00.000Z", 0.6),
+        at("2026-07-23T15:00:00.000Z", 0.2),
+        at("2026-07-24T10:00:00.000Z", 0),
+        at("2026-07-25T10:00:00.000Z", 1.2),
+        at("2026-07-25T11:00:00.000Z", null),
+      ]);
+
+      expect(summary.total).toBeCloseTo(2.4);
+      expect(summary.maxHourly).toBeCloseTo(1.2);
+      expect(summary.rainyDays).toBe(2);
+    });
+
+    it("sem nenhuma leitura de chuva → total e máximo nulos", () => {
+      expect(summarizeRain([at("2026-07-23T14:00:00.000Z", null)])).toEqual({
+        total: null,
+        maxHourly: null,
+        rainyDays: 0,
+      });
+    });
+  });
+
+  it("sampleEvery mantém 1 a cada N leituras reais (sem média) e descarta nulos", () => {
+    const points = Array.from({ length: 10 }, (_, i) => ({ t: i, v: i % 5 === 4 ? null : i }));
+    expect(sampleEvery(points, 100).map((p) => p.v)).toEqual([0, 1, 2, 3, 5, 6, 7, 8]);
+    expect(sampleEvery(points, 4).map((p) => p.v)).toEqual([0, 2, 5, 7]);
+  });
+
+  it("withGaps interrompe o traço onde a estação ficou sem enviar (> 1 h)", () => {
+    const MIN = 60_000;
+    const points = [0, 15, 30, 45, 200, 215].map((minute) => ({ t: minute * MIN, v: minute }));
+    expect(withGaps(points).map((p) => p.v)).toEqual([0, 15, 30, 45, null, 200, 215]);
+    expect(withGaps(points.slice(0, 2))).toHaveLength(2);
+  });
+
   it("readingsToPoints ordena cronologicamente (a API devolve desc)", () => {
     const points = readingsToPoints(historyFixture.readings, "temperature_c");
 
@@ -107,9 +172,9 @@ describe("reportData", () => {
   });
 
   describe("formatação", () => {
-    it("formatNumber usa vírgula decimal e travessão para ausente", () => {
+    it("formatNumber usa vírgula decimal, sem milhar (1013,0 hPa), e travessão para ausente", () => {
       expect(formatNumber(24.66, 1)).toBe("24,7");
-      expect(formatNumber(1013, 1)).toBe("1.013,0");
+      expect(formatNumber(1013, 1)).toBe("1013,0");
       expect(formatNumber(null, 1)).toBe("—");
     });
 

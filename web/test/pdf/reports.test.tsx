@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { DashboardReport } from "../../src/pdf/DashboardReport";
-import { HistoryReport, MAX_TABLE_ROWS, ROWS_PER_PAGE } from "../../src/pdf/HistoryReport";
-import { ReportChart } from "../../src/pdf/ReportChart";
+import { HistoryReport } from "../../src/pdf/HistoryReport";
+import { ReportChart, yDomain } from "../../src/pdf/ReportChart";
+import { TABLE_ROWS_PER_PAGE } from "../../src/pdf/drawReadingsTable";
 import type { HistoryReading, SeriesResponse } from "../../src/api-client";
 import {
   historyFixture,
@@ -36,7 +37,7 @@ describe("DashboardReport", () => {
     rain_mm: rainSeriesFixture,
   };
 
-  it("gera 2 folhas A4 numeradas com cabeçalho, condições atuais e resumo do período", () => {
+  it("gera 3 folhas A4 numeradas com cabeçalho, condições atuais e resumo do período", () => {
     const { container } = render(
       <DashboardReport
         latest={latestFixture}
@@ -47,9 +48,9 @@ describe("DashboardReport", () => {
     );
 
     const [first, second] = pages(container);
-    expect(pages(container)).toHaveLength(2);
-    expect(within(first!).getByText("Página 1 de 2")).toBeInTheDocument();
-    expect(within(second!).getByText("Página 2 de 2")).toBeInTheDocument();
+    expect(pages(container)).toHaveLength(3);
+    expect(within(first!).getByText("Página 1 de 3")).toBeInTheDocument();
+    expect(within(second!).getByText("Página 2 de 3")).toBeInTheDocument();
 
     expect(
       within(first!).getByRole("heading", { name: "Painel de Monitoramento" }),
@@ -78,149 +79,292 @@ describe("DashboardReport", () => {
     );
 
     expect(screen.getAllByText("Sem sinal")).toHaveLength(5);
-    expect(screen.getAllByText("Sem dados no período")).toHaveLength(5);
+    // 5 tendências + 6 cards dos comparativos (3 pares × linhas/pontos).
+    expect(screen.getAllByText("Sem dados no período")).toHaveLength(11);
     expect(screen.getAllByText("Últimos 30 dias").length).toBeGreaterThan(0);
   });
 });
 
-describe("HistoryReport", () => {
-  it("página de resumo + tabela: poucas leituras cabem em uma folha de tabela", () => {
+describe("DashboardReport — comparativos", () => {
+  it("página 3 com os 3 pares, cada um em linhas (médias) e pontos (leituras)", () => {
     const { container } = render(
-      <HistoryReport
+      <DashboardReport
+        latest={latestFixture}
+        series={{
+          temperature_c: seriesFixture,
+          humidity_pct: { ...seriesFixture, metric: "humidity_pct" },
+          pressure_hpa: { ...seriesFixture, metric: "pressure_hpa" },
+        }}
         readings={historyFixture.readings}
-        total={historyFixture.total}
-        from={historyFixture.from}
-        to={historyFixture.to}
+        period={{
+          range: "custom",
+          from: "2026-07-01T12:00:00.000Z",
+          to: "2026-07-10T12:00:00.000Z",
+        }}
         generatedAt={GENERATED_AT}
       />,
     );
 
-    const [summaryPage, tablePage] = pages(container);
-    expect(pages(container)).toHaveLength(2);
-    expect(within(summaryPage!).getByText("Resumo estatístico")).toBeInTheDocument();
+    const third = pages(container)[2]!;
+    expect(within(third).getByText("Página 3 de 3")).toBeInTheDocument();
+    expect(within(third).getByRole("heading", { name: "Comparativos" })).toBeInTheDocument();
+    expect(within(third).getAllByText("Temperatura e Umidade")).toHaveLength(2);
+    expect(within(third).getAllByText("Umidade e Pressão")).toHaveLength(2);
+    // 2 leituras × 2 grandezas em cada um dos 3 cards de pontos.
+    expect(third.querySelectorAll("circle")).toHaveLength(12);
+    // Período personalizado no cabeçalho.
     expect(
-      within(summaryPage!).getByText("Calculado sobre todas as leituras do intervalo"),
-    ).toBeInTheDocument();
-    expect(within(tablePage!).getByText("Página 2 de 2")).toBeInTheDocument();
-    expect(within(tablePage!).getAllByRole("row")).toHaveLength(1 + historyFixture.readings.length);
-    expect(within(tablePage!).getByText("23/07/2026 14:30")).toBeInTheDocument();
-    expect(within(tablePage!).getByText("24,7")).toBeInTheDocument();
+      within(pages(container)[0]!).getAllByText("01/07/2026 – 10/07/2026").length,
+    ).toBeGreaterThan(0);
   });
 
-  it("pagina a tabela em ROWS_PER_PAGE linhas por folha", () => {
-    const readings = syntheticReadings(ROWS_PER_PAGE * 2 + 1);
+  it("chuva no resumo: só máxima (por hora/dia) e total — mínima/média por intervalo não têm sentido físico", () => {
+    const { container } = render(
+      <DashboardReport
+        latest={latestFixture}
+        series={{ rain_mm: rainSeriesFixture }}
+        period={{ range: "24h" }}
+        generatedAt={GENERATED_AT}
+      />,
+    );
+
+    const row = within(pages(container)[0]!).getByText("máxima em 1 hora").closest("tr")!;
+    const cells = within(row)
+      .getAllByRole("cell")
+      .map((cell) => cell.textContent);
+    expect(cells.slice(1)).toEqual(["—", "—", "0,4 mm", "Total 0,5 mm"]);
+  });
+});
+
+describe("HistoryReport", () => {
+  it("só a capa (a tabela é texto no PDF), com a numeração já contando as folhas da tabela", () => {
+    const readings = syntheticReadings(TABLE_ROWS_PER_PAGE * 2 + 1);
     const { container } = render(
       <HistoryReport
         readings={readings}
-        total={readings.length}
-        from={historyFixture.from}
-        to={historyFixture.to}
-        generatedAt={GENERATED_AT}
-      />,
-    );
-
-    const all = pages(container);
-    expect(all).toHaveLength(4);
-    expect(within(all[3]!).getByText("Página 4 de 4")).toBeInTheDocument();
-    expect(within(all[3]!).getAllByRole("row")).toHaveLength(2);
-  });
-
-  it("acima de MAX_TABLE_ROWS a tabela é cortada e avisa quantas leituras ficaram de fora", () => {
-    const readings = syntheticReadings(MAX_TABLE_ROWS + 10);
-    const { container } = render(
-      <HistoryReport
-        readings={readings}
-        total={readings.length + 100}
-        from={historyFixture.from}
-        to={historyFixture.to}
-        generatedAt={GENERATED_AT}
-      />,
-    );
-
-    const all = pages(container);
-    expect(all).toHaveLength(1 + MAX_TABLE_ROWS / ROWS_PER_PAGE);
-    expect(
-      within(all.at(-1)!).getByText(/110 leituras mais antigas ficaram de fora/),
-    ).toBeInTheDocument();
-    expect(
-      within(all[0]!).getByText(/calculados sobre as .* leituras mais recentes/),
-    ).toBeInTheDocument();
-  });
-
-  it("intervalo vazio: uma única folha com o estado vazio", () => {
-    const { container } = render(
-      <HistoryReport
-        readings={[]}
-        total={0}
-        from={historyFixture.from}
-        to={historyFixture.to}
+        from="2026-07-22T14:30:00.000Z"
+        to="2026-07-23T14:30:00.000Z"
         generatedAt={GENERATED_AT}
       />,
     );
 
     expect(pages(container)).toHaveLength(1);
+    expect(screen.getByText("Página 1 de 4")).toBeInTheDocument();
+    expect(screen.getByText(String(readings.length))).toBeInTheDocument();
+    expect(screen.queryByText(/ficaram de fora/)).not.toBeInTheDocument();
+  });
+
+  it("resumo da chuva: total, máximo em 1 h e dias com chuva (não mín/máx por leitura)", () => {
+    render(
+      <HistoryReport
+        readings={syntheticReadings(24)}
+        from="2026-07-22T14:30:00.000Z"
+        to="2026-07-23T14:30:00.000Z"
+        generatedAt={GENERATED_AT}
+      />,
+    );
+
+    // 24 leituras de 0,2 mm a cada 5 min = 4,8 mm em 2 horas (12 por hora = 2,4 mm).
+    expect(screen.getByText("Total no período")).toBeInTheDocument();
+    expect(screen.getByText("4,8")).toBeInTheDocument();
+    expect(screen.getByText("máx em 1 h: 2,4 mm")).toBeInTheDocument();
+    expect(screen.getByText("1 dia com chuva")).toBeInTheDocument();
+  });
+
+  it("intervalo vazio: uma única folha com o estado vazio", () => {
+    render(
+      <HistoryReport
+        readings={[]}
+        from="2026-07-22T14:30:00.000Z"
+        to="2026-07-23T14:30:00.000Z"
+        generatedAt={GENERATED_AT}
+      />,
+    );
+
     expect(screen.getByText("Nenhuma leitura no intervalo")).toBeInTheDocument();
     expect(screen.getByText("Página 1 de 1")).toBeInTheDocument();
   });
 });
 
 describe("ReportChart", () => {
-  const points = [
-    { t: Date.parse("2026-07-23T12:00:00.000Z"), v: 20 },
-    { t: Date.parse("2026-07-23T13:00:00.000Z"), v: null },
-    { t: Date.parse("2026-07-23T14:00:00.000Z"), v: 22 },
-    { t: Date.parse("2026-07-23T15:00:00.000Z"), v: 24 },
-  ];
+  const HOUR = 60 * 60 * 1000;
+  const start = Date.parse("2026-07-23T00:00:00.000Z");
+  const meta = { color: "#ea580c", digits: 1 };
 
-  it("linha: quebra o traço nos nulos e rotula o eixo X em horas quando o período é curto", () => {
+  it("linha: quebra o traço nos nulos e rotula o eixo X em horas num período curto", () => {
     const { container } = render(
-      <ReportChart points={points} color="#ea580c" width={400} height={160} digits={1} />,
+      <ReportChart
+        series={[
+          {
+            ...meta,
+            points: [
+              { t: start, v: 20 },
+              { t: start + HOUR, v: 21 },
+              { t: start + 2 * HOUR, v: null },
+              { t: start + 3 * HOUR, v: 22 },
+              { t: start + 4 * HOUR, v: 23 },
+            ],
+          },
+        ]}
+        width={400}
+        height={160}
+      />,
     );
 
-    // 2 segmentos (antes/depois do nulo), cada um com área + linha.
+    // 2 segmentos (área + traço cada).
     expect(container.querySelectorAll("path")).toHaveLength(4);
-    expect(container.querySelector("circle")).not.toBeNull();
-    expect(screen.getByText("12:00")).toBeInTheDocument();
-    expect(screen.getByText("15:00")).toBeInTheDocument();
+    expect(container.textContent).toMatch(/\d{2}:\d{2}/);
+  });
+
+  it("domínio X é a janela pedida: dados no começo ocupam só o começo do eixo", () => {
+    const { container } = render(
+      <ReportChart
+        series={[
+          {
+            ...meta,
+            points: [
+              { t: start, v: 20 },
+              { t: start + HOUR, v: 21 },
+            ],
+          },
+        ]}
+        domain={[start, start + 10 * HOUR]}
+        width={440}
+        height={160}
+      />,
+    );
+
+    const d = container.querySelectorAll("path")[1]!.getAttribute("d")!;
+    const xs = Array.from(d.matchAll(/[ML](-?[\d.]+),/g), (m) => Number(m[1]));
+    expect(Math.max(...xs)).toBeLessThan(400 / 5);
+  });
+
+  it("divisores de dia só acima de 2 dias", () => {
+    const short = render(
+      <ReportChart
+        series={[
+          {
+            ...meta,
+            points: [
+              { t: start, v: 1 },
+              { t: start + HOUR, v: 2 },
+            ],
+          },
+        ]}
+        domain={[start, start + 24 * HOUR]}
+        width={400}
+        height={160}
+      />,
+    );
+    expect(short.container.querySelectorAll("[data-day-divider]")).toHaveLength(0);
+
+    const long = render(
+      <ReportChart
+        series={[
+          {
+            ...meta,
+            points: [
+              { t: start, v: 1 },
+              { t: start + HOUR, v: 2 },
+            ],
+          },
+        ]}
+        domain={[start + 12 * HOUR, start + 12 * HOUR + 5 * 24 * HOUR]}
+        width={400}
+        height={160}
+      />,
+    );
+    expect(long.container.querySelectorAll("[data-day-divider]")).toHaveLength(5);
   });
 
   it("barras: um retângulo por valor positivo, eixo ancorado em zero", () => {
     const { container } = render(
       <ReportChart
-        points={points}
-        color="#0891b2"
+        series={[
+          {
+            ...meta,
+            points: [
+              { t: start, v: 0 },
+              { t: start + HOUR, v: 1.2 },
+              { t: start + 2 * HOUR, v: 0.4 },
+            ],
+          },
+        ]}
         kind="bar"
+        bucketMs={HOUR}
         width={400}
         height={160}
-        digits={1}
       />,
     );
 
-    expect(container.querySelectorAll("rect")).toHaveLength(3);
-    expect(screen.getByText("0,0")).toBeInTheDocument();
+    expect(container.querySelectorAll("rect")).toHaveLength(2);
+    expect(container.textContent).toContain("0,0");
   });
 
-  it("buckets diários (utcDays) e períodos longos rotulam por dia", () => {
-    const daily = [
-      { t: Date.parse("2026-07-01T00:00:00.000Z"), v: 1 },
-      { t: Date.parse("2026-07-10T00:00:00.000Z"), v: 1 },
-    ];
-    render(<ReportChart points={daily} color="#000" width={400} height={160} digits={0} utcDays />);
+  it("2 séries: um eixo de cada lado, com a unidade de cada uma", () => {
+    const { container } = render(
+      <ReportChart
+        series={[
+          {
+            ...meta,
+            unit: "°C",
+            points: [
+              { t: start, v: 20 },
+              { t: start + HOUR, v: 25 },
+            ],
+          },
+          {
+            color: "#0284c7",
+            digits: 0,
+            unit: "%",
+            points: [
+              { t: start, v: 60 },
+              { t: start + HOUR, v: 80 },
+            ],
+          },
+        ]}
+        kind="dots"
+        width={400}
+        height={160}
+      />,
+    );
 
-    expect(screen.getByText("01/07")).toBeInTheDocument();
-    expect(screen.getByText("10/07")).toBeInTheDocument();
+    expect(container.querySelectorAll("circle")).toHaveLength(4);
+    expect(container.textContent).toContain("°C");
+    expect(container.textContent).toContain("%");
   });
 
   it("um único ponto não divide por zero; sem valores mostra o estado vazio", () => {
-    const single = [{ t: Date.parse("2026-07-23T12:00:00.000Z"), v: 5 }];
-    const { container, rerender } = render(
-      <ReportChart points={single} color="#000" width={400} height={160} digits={0} />,
+    const { container } = render(
+      <ReportChart
+        series={[{ ...meta, points: [{ t: start, v: 20 }] }]}
+        width={400}
+        height={160}
+      />,
     );
-    expect(container.querySelector("circle")?.getAttribute("cx")).not.toBe("NaN");
+    expect(container.innerHTML).not.toContain("NaN");
 
-    rerender(
-      <ReportChart points={[{ t: 0, v: null }]} color="#000" width={400} height={160} digits={0} />,
+    render(
+      <ReportChart
+        series={[{ ...meta, points: [{ t: start, v: null }] }]}
+        width={400}
+        height={160}
+      />,
     );
     expect(screen.getByText("Sem dados no período")).toBeInTheDocument();
+  });
+});
+
+describe("yDomain (limites físicos)", () => {
+  it("umidade nunca passa de 100 % nem desce abaixo de 0", () => {
+    const [min, max] = yDomain([5, 100], "line", { min: 0, max: 100 });
+    expect(max).toBe(100);
+    expect(min).toBe(0);
+  });
+
+  it("grandeza que pode ser negativa (temperatura) ganha folga dos dois lados", () => {
+    const [min, max] = yDomain([-2, 8], "line");
+    expect(min).toBeLessThan(-2);
+    expect(max).toBeGreaterThan(8);
   });
 });

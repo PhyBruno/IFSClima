@@ -1,7 +1,8 @@
-import type { LatestReading, Metric, SeriesResponse } from "../api-client";
+import type { HistoryReading, LatestReading, Metric, SeriesResponse } from "../api-client";
+import { MS_PER_DAY, MS_PER_HOUR } from "../utils/timeAxis";
 import { periodLabel, type Period } from "../utils/period";
 import { getUvCriticality, type UvCriticality } from "../utils/uvIndex";
-import { ReportChart } from "./ReportChart";
+import { ReportChart, type ReportSeries } from "./ReportChart";
 import {
   CONTENT_WIDTH_PX,
   MetricIcon,
@@ -17,6 +18,8 @@ import {
   formatMetricValue,
   formatNumber,
   getMetricMeta,
+  readingsToPoints,
+  sampleEvery,
   seriesToPoints,
   summarizeSeries,
   type MetricMeta,
@@ -24,14 +27,18 @@ import {
 
 /**
  * Relatório em PDF do Painel de Monitoramento — o MESMO conteúdo do
- * dashboard (leitura mais recente + séries agregadas do período escolhido),
- * diagramado como documento em vez de screenshot da tela:
+ * dashboard (leitura mais recente + séries agregadas do período escolhido,
+ * preset ou personalizado), diagramado como documento:
  *
- * - página 1: cabeçalho, cards das condições atuais (com a criticidade do
- *   UV), tabela-resumo do período (mín/média/máx e variação ou total de
- *   chuva) e o gráfico de temperatura em destaque;
- * - página 2: tendências de umidade, pressão, chuva (barras, acumulado por
- *   intervalo) e UV, com uma nota de leitura dos gráficos para uso em sala.
+ * - página 1: cabeçalho, condições atuais (com a criticidade do UV),
+ *   tabela-resumo do período e o gráfico de temperatura em destaque;
+ * - página 2: tendências de umidade, pressão, chuva (barras por hora/dia) e
+ *   UV, com uma nota de leitura dos gráficos para uso em sala;
+ * - página 3: "Comparativos" (pedido do usuário, 2026-11-24) — os 3 pares de
+ *   grandezas ao longo do tempo, médias em linhas e leituras em pontos.
+ *
+ * Todos os gráficos usam o eixo de tempo da janela consultada
+ * (`SeriesResponse.from/to`), como na tela.
  */
 export const DASHBOARD_REPORT_TITLE = "Relatório do Painel de Monitoramento";
 
@@ -47,10 +54,36 @@ export interface DashboardReportProps {
   latest: LatestReading | undefined;
   series: Partial<Record<Metric, SeriesResponse>>;
   period: Period;
+  /** Leituras brutas da janela (gráficos de pontos dos comparativos). */
+  readings?: HistoryReading[];
   generatedAt: Date;
 }
 
-const TOTAL_PAGES = 2;
+const TOTAL_PAGES = 3;
+
+/** Teto de pontos por série nos gráficos de leituras (o SVG vira imagem na captura). */
+const REPORT_MAX_DOTS = 1500;
+
+/** Os 3 pares dos comparativos — mesmos da tela (`ChartsSection.COMPARISON_PAIRS`). */
+export const REPORT_COMPARISON_PAIRS: [Metric, Metric][] = [
+  ["temperature_c", "humidity_pct"],
+  ["temperature_c", "pressure_hpa"],
+  ["humidity_pct", "pressure_hpa"],
+];
+
+function windowOf(response: SeriesResponse | undefined): [number, number] | undefined {
+  if (!response) {
+    return undefined;
+  }
+  const from = Date.parse(response.from);
+  const to = Date.parse(response.to);
+  return Number.isFinite(from) && Number.isFinite(to) && to > from ? [from, to] : undefined;
+}
+
+/** "hora" ou "dia" — o que cada ponto/barra agregada representa. */
+function bucketNoun(response: SeriesResponse | undefined): "hora" | "dia" {
+  return response?.bucket === "day" ? "dia" : "hora";
+}
 
 function CurrentCard({ meta, value }: { meta: MetricMeta; value: number | null | undefined }) {
   const uv =
@@ -102,7 +135,8 @@ function SummaryTable({ series }: { series: DashboardReportProps["series"] }) {
         </thead>
         <tbody>
           {REPORT_METRICS.map((meta) => {
-            const summary = summarizeSeries(series[meta.metric]);
+            const response = series[meta.metric];
+            const summary = summarizeSeries(response);
             const isRain = meta.metric === "rain_mm";
             const spread =
               summary.min !== null && summary.max !== null ? summary.max - summary.min : null;
@@ -117,15 +151,19 @@ function SummaryTable({ series }: { series: DashboardReportProps["series"] }) {
                     />
                     {meta.label}
                     {isRain ? (
-                      <span className="text-[9px] font-normal text-slate-400">por intervalo</span>
+                      <span className="text-[9px] font-normal text-slate-400">
+                        máxima em 1 {bucketNoun(response)}
+                      </span>
                     ) : null}
                   </span>
                 </td>
+                {/* Chuva: mínima/média de volumes por intervalo não descrevem nada
+                    físico — só o maior volume num intervalo e o total. */}
                 <td className="px-4 py-2 text-right text-slate-600">
-                  {formatMetricValue(summary.min, meta)}
+                  {isRain ? "—" : formatMetricValue(summary.min, meta)}
                 </td>
                 <td className="px-4 py-2 text-right font-semibold text-slate-900">
-                  {formatMetricValue(summary.avg, meta)}
+                  {isRain ? "—" : formatMetricValue(summary.avg, meta)}
                 </td>
                 <td className="px-4 py-2 text-right text-slate-600">
                   {formatMetricValue(summary.max, meta)}
@@ -158,6 +196,7 @@ function TrendCard({
   const meta = getMetricMeta(metric);
   const summary = summarizeSeries(response);
   const isRain = metric === "rain_mm";
+  const noun = bucketNoun(response);
 
   return (
     <ReportCard className="flex flex-col gap-3">
@@ -167,7 +206,7 @@ function TrendCard({
           <div className="flex flex-col">
             <span className="text-[12px] font-semibold text-slate-900">{meta.label}</span>
             <span className="text-[9px] text-slate-400">
-              {isRain ? "Acumulado por intervalo" : "Média por intervalo"}
+              {isRain ? `Volume por ${noun}` : `Média por ${noun}`}
             </span>
           </div>
         </div>
@@ -179,24 +218,100 @@ function TrendCard({
         </div>
       </div>
       <ReportChart
-        points={seriesToPoints(response)}
-        color={meta.color}
+        series={[
+          {
+            points: seriesToPoints(response),
+            color: meta.color,
+            digits: meta.digits,
+            bounds: meta.bounds,
+          },
+        ]}
         kind={isRain ? "bar" : "line"}
+        domain={windowOf(response)}
+        bucketMs={response?.bucket === "day" ? MS_PER_DAY : MS_PER_HOUR}
         width={width}
         height={height}
-        digits={meta.digits}
       />
     </ReportCard>
   );
 }
 
-export function DashboardReport({ latest, series, period, generatedAt }: DashboardReportProps) {
+function PairLegend({ metrics }: { metrics: [Metric, Metric] }) {
+  return (
+    <div className="flex items-center gap-3 text-[9px] text-slate-500">
+      {metrics.map((metric) => {
+        const meta = getMetricMeta(metric);
+        return (
+          <span key={metric} className="flex items-center gap-1.5">
+            <span
+              className="size-2 rounded-full"
+              style={{ backgroundColor: meta.color }}
+              aria-hidden="true"
+            />
+            {meta.label}
+            {meta.unit ? ` (${meta.unit})` : ""}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function PairCard({
+  metrics,
+  kind,
+  series,
+  domain,
+  width,
+}: {
+  metrics: [Metric, Metric];
+  kind: "line" | "dots";
+  series: ReportSeries[];
+  domain: [number, number] | undefined;
+  width: number;
+}) {
+  const title = metrics.map((metric) => getMetricMeta(metric).label).join(" e ");
+  return (
+    <ReportCard className="flex flex-col gap-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[11px] font-semibold text-slate-900">{title}</span>
+        <PairLegend metrics={metrics} />
+      </div>
+      <ReportChart series={series} kind={kind} domain={domain} width={width} height={200} />
+    </ReportCard>
+  );
+}
+
+function pairSeries(
+  metrics: [Metric, Metric],
+  pointsOf: (metric: Metric) => ReportSeries["points"],
+): ReportSeries[] {
+  return metrics.map((metric) => {
+    const meta = getMetricMeta(metric);
+    return {
+      points: pointsOf(metric),
+      color: meta.color,
+      digits: meta.digits,
+      unit: meta.unit,
+      bounds: meta.bounds,
+    };
+  });
+}
+
+export function DashboardReport({
+  latest,
+  series,
+  period,
+  readings = [],
+  generatedAt,
+}: DashboardReportProps) {
   const halfWidth = (CONTENT_WIDTH_PX - 16) / 2 - 34;
   const label = periodLabel(period, "long");
   const bucketText =
     series.temperature_c?.bucket === "day"
       ? "cada ponto é a média de um dia"
       : "cada ponto é a média de uma hora";
+  const domain = windowOf(series.temperature_c);
 
   return (
     <>
@@ -257,11 +372,43 @@ export function DashboardReport({ latest, series, period, generatedAt }: Dashboa
           <p className="text-[10px] leading-relaxed text-slate-500">
             <strong className="font-semibold text-slate-700">Como ler os gráficos:</strong> os cards
             de “Condições atuais” mostram a leitura pontual mais recente. Os gráficos e o resumo
-            mostram a agregação histórica do período ({bucketText}). Na chuva, cada barra é o volume
-            acumulado no intervalo, e o total é a soma do período. O Índice UV segue a escala da
-            OMS: 0–2 baixo, 3–5 moderado, 6–7 alto, 8–10 muito alto e 11+ extremo.
+            mostram a agregação histórica do período ({bucketText}), posicionada no tempo real: um
+            trecho vazio é um período sem leituras da estação, e as linhas tracejadas verticais
+            marcam a meia-noite. Na chuva, cada barra é o volume acumulado na hora ou no dia, e o
+            total é a soma do período. A umidade relativa vai de 0 a 100 %. O Índice UV segue a
+            escala da OMS: 0–2 baixo, 3–5 moderado, 6–7 alto, 8–10 muito alto e 11+ extremo.
           </p>
         </ReportCard>
+      </ReportPage>
+
+      <ReportPage pageNumber={3} totalPages={TOTAL_PAGES} documentTitle={DASHBOARD_REPORT_TITLE}>
+        <ReportContinuationHeader
+          title="Comparativos"
+          subtitle={`${label} · duas grandezas ao longo do tempo, cada uma no seu eixo`}
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          {REPORT_COMPARISON_PAIRS.map((metrics) => [
+            <PairCard
+              key={`${metrics.join("-")}-line`}
+              metrics={metrics}
+              kind="line"
+              series={pairSeries(metrics, (metric) => seriesToPoints(series[metric]))}
+              domain={domain}
+              width={halfWidth}
+            />,
+            <PairCard
+              key={`${metrics.join("-")}-dots`}
+              metrics={metrics}
+              kind="dots"
+              series={pairSeries(metrics, (metric) =>
+                sampleEvery(readingsToPoints(readings, metric), REPORT_MAX_DOTS),
+              )}
+              domain={domain}
+              width={halfWidth}
+            />,
+          ])}
+        </div>
       </ReportPage>
     </>
   );

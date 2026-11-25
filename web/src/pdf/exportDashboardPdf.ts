@@ -1,6 +1,14 @@
 import { createElement } from "react";
 import type { QueryClient } from "@tanstack/react-query";
-import { getLatest, getSeries, type Metric, type SeriesResponse } from "../api-client";
+import {
+  fetchAllReadings,
+  getLatest,
+  getSeries,
+  type HistoryReading,
+  type Metric,
+  type SeriesResponse,
+} from "../api-client";
+import { rawReadingsQueryKey } from "../hooks/useRawReadings";
 import { LATEST_QUERY_KEY } from "../hooks/useLatest";
 import { seriesQueryKey } from "../hooks/useSeries";
 import { DASHBOARD_REPORT_TITLE, DashboardReport } from "./DashboardReport";
@@ -58,7 +66,24 @@ export async function exportDashboardToPdf({
     throw new Error("Não foi possível carregar os dados do painel");
   }
 
-  await renderReportToPdf(createElement(DashboardReport, { latest, series, period, generatedAt }), {
+  // Leituras brutas dos gráficos de pontos (comparativos): mesma janela e
+  // mesma chave de cache do painel; sem elas, os cards de pontos saem vazios.
+  const reference = series.temperature_c;
+  let readings: HistoryReading[] = [];
+  if (reference) {
+    try {
+      const raw = await queryClient.ensureQueryData({
+        queryKey: rawReadingsQueryKey(reference.from, reference.to),
+        queryFn: () => fetchAllReadings({ from: reference.from, to: reference.to }),
+      });
+      readings = raw.readings;
+    } catch {
+      readings = [];
+    }
+  }
+
+  const report = createElement(DashboardReport, { latest, series, period, readings, generatedAt });
+  await renderReportToPdf(report, {
     fileName: `ifsclima-painel-${period.range}-${fileDateStamp(generatedAt)}.pdf`,
     title: DASHBOARD_REPORT_TITLE,
   });

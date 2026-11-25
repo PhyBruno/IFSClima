@@ -4,16 +4,18 @@ import { http, HttpResponse } from "msw";
 import { server } from "../mocks/server";
 import { createQueryClient } from "../../src/providers/QueryProvider";
 import { exportDashboardToPdf } from "../../src/pdf/exportDashboardPdf";
-import {
-  HISTORY_FETCH_PAGE_SIZE,
-  MAX_READINGS,
-  exportHistoryToPdf,
-} from "../../src/pdf/exportHistoryPdf";
-import { renderReportToPdf } from "../../src/pdf/renderReportToPdf";
+import { exportHistoryToPdf } from "../../src/pdf/exportHistoryPdf";
+import { renderReportToPdf, type RenderReportOptions } from "../../src/pdf/renderReportToPdf";
+import type jsPDF from "jspdf";
 import type { DashboardReportProps } from "../../src/pdf/DashboardReport";
 import type { HistoryReportProps } from "../../src/pdf/HistoryReport";
-import type { HistoryReading } from "../../src/api-client";
-import { historyFixture, latestFixture, seriesFixture } from "../fixtures/readings";
+import { HISTORY_MAX_PAGE_SIZE, type HistoryReading } from "../../src/api-client";
+import {
+  emptyHistoryFixture,
+  historyFixture,
+  latestFixture,
+  seriesFixture,
+} from "../fixtures/readings";
 
 /**
  * Os exportadores só BUSCAM os dados e escolhem o relatório/nome do arquivo;
@@ -24,7 +26,7 @@ vi.mock("../../src/pdf/renderReportToPdf", () => ({ renderReportToPdf: vi.fn() }
 
 const GENERATED_AT = new Date("2026-07-23T15:00:00.000Z");
 
-function lastReport<P>(): { props: P; options: { fileName: string; title: string } } {
+function lastReport<P>(): { props: P; options: RenderReportOptions } {
   const [element, options] = vi.mocked(renderReportToPdf).mock.calls.at(-1)!;
   expect(isValidElement(element)).toBe(true);
   return { props: (element as ReactElement<P>).props, options };
@@ -85,6 +87,43 @@ describe("exportDashboardToPdf", () => {
   });
 });
 
+describe("exportDashboardToPdf — comparativos", () => {
+  it("leva as leituras brutas da MESMA janela das séries (gráficos de pontos)", async () => {
+    const requests: URLSearchParams[] = [];
+    server.use(
+      http.get("/api/v1/readings", ({ request }) => {
+        requests.push(new URL(request.url).searchParams);
+        return HttpResponse.json(historyFixture);
+      }),
+    );
+    const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    await exportDashboardToPdf({
+      queryClient,
+      period: { range: "24h" },
+      generatedAt: GENERATED_AT,
+    });
+
+    expect(requests[0]!.get("from")).toBe(seriesFixture.from);
+    expect(requests[0]!.get("to")).toBe(seriesFixture.to);
+    const { props } = lastReport<DashboardReportProps>();
+    expect(props.readings).toEqual(historyFixture.readings);
+  });
+
+  it("falha nas leituras brutas não impede o PDF (pontos saem vazios)", async () => {
+    server.use(http.get("/api/v1/readings", () => new HttpResponse(null, { status: 500 })));
+    const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    await exportDashboardToPdf({
+      queryClient,
+      period: { range: "24h" },
+      generatedAt: GENERATED_AT,
+    });
+
+    expect(lastReport<DashboardReportProps>().props.readings).toEqual([]);
+  });
+});
+
 describe("exportHistoryToPdf", () => {
   it("usa o intervalo resolvido pela API e nomeia o arquivo pela data de geração", async () => {
     await exportHistoryToPdf({
@@ -95,28 +134,26 @@ describe("exportHistoryToPdf", () => {
 
     const { props, options } = lastReport<HistoryReportProps>();
     expect(props.readings).toEqual(historyFixture.readings);
-    expect(props.total).toBe(2);
     expect(props.from).toBe(historyFixture.from);
     expect(props.to).toBe(historyFixture.to);
     expect(options.fileName).toBe("ifsclima-historico-2026-07-23.pdf");
   });
 
-  it("busca todas as páginas do intervalo em lotes do tamanho máximo da API, até MAX_READINGS", async () => {
-    const total = MAX_READINGS + 700;
-    const requestedPages: string[] = [];
+  it("busca TODAS as leituras do intervalo (sem teto), em ordem cronológica", async () => {
+    const total = HISTORY_MAX_PAGE_SIZE * 12 + 37;
+    const requestedPages: number[] = [];
     server.use(
       http.get("/api/v1/readings", ({ request }) => {
         const params = new URL(request.url).searchParams;
-        requestedPages.push(
-          `${params.get("page")}:${params.get("page_size")}:${params.get("order")}`,
-        );
         const page = Number(params.get("page"));
-        const start = (page - 1) * HISTORY_FETCH_PAGE_SIZE;
-        const count = Math.max(0, Math.min(HISTORY_FETCH_PAGE_SIZE, total - start));
+        expect(params.get("order")).toBe("asc");
+        requestedPages.push(page);
+        const start = (page - 1) * HISTORY_MAX_PAGE_SIZE;
+        const count = Math.max(0, Math.min(HISTORY_MAX_PAGE_SIZE, total - start));
         const readings: HistoryReading[] = Array.from({ length: count }, (_, i) => ({
           ...historyFixture.readings[0]!,
           timestamp: new Date(
-            Date.parse("2026-07-23T14:30:00.000Z") - (start + i) * 60_000,
+            Date.parse("2026-07-01T00:00:00.000Z") + (start + i) * 60_000,
           ).toISOString(),
         }));
         return HttpResponse.json({ ...historyFixture, page, total, readings });
@@ -125,25 +162,45 @@ describe("exportHistoryToPdf", () => {
 
     await exportHistoryToPdf({ generatedAt: GENERATED_AT });
 
-    expect(requestedPages).toHaveLength(MAX_READINGS / HISTORY_FETCH_PAGE_SIZE);
-    expect(requestedPages[0]).toBe(`1:${HISTORY_FETCH_PAGE_SIZE}:desc`);
+    expect(requestedPages).toHaveLength(13);
     const { props } = lastReport<HistoryReportProps>();
-    expect(props.readings).toHaveLength(MAX_READINGS);
-    expect(props.total).toBe(total);
+    expect(props.readings).toHaveLength(total);
+    expect(props.readings[0]!.timestamp < props.readings.at(-1)!.timestamp).toBe(true);
   });
 
-  it("para quando a API devolve uma página incompleta (fim dos dados)", async () => {
-    let calls = 0;
-    server.use(
-      http.get("/api/v1/readings", () => {
-        calls += 1;
-        // `total` desatualizado (maior que o real): a página curta encerra a busca mesmo assim.
-        return HttpResponse.json({ ...historyFixture, total: 10_000 });
-      }),
-    );
+  it("a tabela é anexada como folhas de texto (appendPages → drawReadingsTable)", async () => {
+    await exportHistoryToPdf({ generatedAt: GENERATED_AT });
 
-    await exportHistoryToPdf({});
+    const { options } = lastReport<HistoryReportProps>();
+    const texts: string[] = [];
+    const pdf = {
+      addPage: vi.fn(),
+      setFont: vi.fn(),
+      setFontSize: vi.fn(),
+      setTextColor: vi.fn(),
+      setDrawColor: vi.fn(),
+      setFillColor: vi.fn(),
+      setLineWidth: vi.fn(),
+      line: vi.fn(),
+      rect: vi.fn(),
+      addImage: vi.fn(),
+      getTextWidth: () => 10,
+      text: (value: string) => texts.push(value),
+    };
+    await options.appendPages!(pdf as unknown as jsPDF);
 
-    expect(calls).toBe(1);
+    expect(pdf.addPage).toHaveBeenCalledTimes(1);
+    expect(texts).toContain("Página 2 de 2");
+    expect(texts).toContain("24,7");
+  });
+
+  it("intervalo sem leituras: nenhuma folha de tabela", async () => {
+    server.use(http.get("/api/v1/readings", () => HttpResponse.json(emptyHistoryFixture)));
+
+    await exportHistoryToPdf({ generatedAt: GENERATED_AT });
+
+    const addPage = vi.fn();
+    await lastReport<HistoryReportProps>().options.appendPages!({ addPage } as unknown as jsPDF);
+    expect(addPage).not.toHaveBeenCalled();
   });
 });

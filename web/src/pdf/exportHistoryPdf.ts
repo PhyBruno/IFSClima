@@ -1,7 +1,8 @@
 import { createElement } from "react";
-import { getHistory, type HistoryReading } from "../api-client";
+import { fetchAllReadings } from "../api-client";
+import { drawReadingsTable } from "./drawReadingsTable";
 import { HISTORY_REPORT_TITLE, HistoryReport } from "./HistoryReport";
-import { fileDateStamp } from "./reportData";
+import { fileDateStamp, formatDateTime } from "./reportData";
 import { renderReportToPdf } from "./renderReportToPdf";
 
 /**
@@ -9,16 +10,13 @@ import { renderReportToPdf } from "./renderReportToPdf";
  * (`HistoryPage` → botão "Exportar PDF", carregado por `import()`
  * dinâmico).
  *
- * A tabela da tela é paginada (50 por página), mas o relatório precisa do
- * intervalo INTEIRO para o resumo e os gráficos. Por isso as leituras são
- * buscadas em lotes do tamanho máximo aceito pela API (`MAX_PAGE_SIZE` de
- * `api/src/schemas/history.ts`), até `MAX_READINGS`. Esse teto evita dezenas
- * de requisições num intervalo de um ano. Quando é atingido, o relatório
- * informa que o resumo cobre só as leituras mais recentes.
+ * **Todas as leituras (pedido do usuário, 2026-11-24)**: a tabela da tela é
+ * paginada (50 por página), mas o relatório busca o intervalo INTEIRO
+ * (`fetchAllReadings`, páginas de 500 em paralelo, ordem cronológica) — sem
+ * teto: a API já limita o intervalo a 366 dias. O resumo, os gráficos e a
+ * tabela usam o mesmo conjunto completo; a tabela é desenhada em texto no PDF
+ * (`drawReadingsTable`), leve mesmo com dezenas de milhares de linhas.
  */
-export const HISTORY_FETCH_PAGE_SIZE = 500;
-export const MAX_READINGS = 5000;
-
 export interface ExportHistoryPdfOptions {
   /** Intervalo já resolvido pelo servidor (o mesmo que a tabela está mostrando). */
   from?: string;
@@ -27,49 +25,59 @@ export interface ExportHistoryPdfOptions {
   generatedAt?: Date;
 }
 
+const TABLE_LOGO_SRC = "/jaragua-centro-logo-light-theme.png";
+
+/** Logo institucional em data URL para o cabeçalho da tabela; sem logo se não carregar. */
+async function loadLogo(): Promise<{ dataUrl: string; width: number; height: number } | undefined> {
+  try {
+    const image = new Image();
+    image.src = TABLE_LOGO_SRC;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context || canvas.width === 0) {
+      return undefined;
+    }
+    context.drawImage(image, 0, 0);
+    return { dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function exportHistoryToPdf({
   from,
   to,
   generatedAt = new Date(),
 }: ExportHistoryPdfOptions): Promise<void> {
-  const readings: HistoryReading[] = [];
-  let total = 0;
-  let resolvedFrom = from ?? "";
-  let resolvedTo = to ?? "";
-
-  for (let page = 1; ; page += 1) {
-    const response = await getHistory({
-      from,
-      to,
-      page,
-      pageSize: HISTORY_FETCH_PAGE_SIZE,
-      order: "desc",
-    });
-
-    if (page === 1) {
-      total = response.total;
-      resolvedFrom = response.from;
-      resolvedTo = response.to;
-    }
-    readings.push(...response.readings);
-
-    const reachedEnd = response.readings.length < HISTORY_FETCH_PAGE_SIZE;
-    if (reachedEnd || readings.length >= Math.min(total, MAX_READINGS)) {
-      break;
-    }
-  }
+  const result = await fetchAllReadings({ from, to });
+  const periodText = `${formatDateTime(result.from)} – ${formatDateTime(result.to)}`;
 
   await renderReportToPdf(
     createElement(HistoryReport, {
-      readings: readings.slice(0, MAX_READINGS),
-      total,
-      from: resolvedFrom,
-      to: resolvedTo,
+      readings: result.readings,
+      from: result.from,
+      to: result.to,
       generatedAt,
     }),
     {
       fileName: `ifsclima-historico-${fileDateStamp(generatedAt)}.pdf`,
       title: HISTORY_REPORT_TITLE,
+      appendPages: async (pdf) => {
+        if (result.readings.length === 0) {
+          return;
+        }
+        drawReadingsTable(pdf, {
+          readings: result.readings,
+          // "-" e não "–": a Helvetica padrão do PDF não tem o meio-traço.
+          periodText: periodText.replace("–", "-"),
+          documentTitle: HISTORY_REPORT_TITLE,
+          pagesBefore: 1,
+          logo: await loadLogo(),
+        });
+      },
     },
   );
 }

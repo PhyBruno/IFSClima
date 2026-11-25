@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { dayBoundaries, formatTick, timeTicks } from "../utils/timeAxis";
 import { formatNumber, type ChartPoint } from "./reportData";
 
 /**
@@ -11,61 +12,66 @@ import { formatNumber, type ChartPoint } from "./reportData";
  * **Só formas no SVG, texto em HTML**: o `html2canvas-pro` pinta o SVG
  * serializado como imagem, e dentro dessa imagem nem a fonte Geist nem as
  * classes do Tailwind se aplicam. Por isso as cores são atributos hex, e os
- * rótulos dos eixos são `<span>`s posicionados por cima, que herdam a
- * tipografia do relatório.
+ * rótulos dos eixos são `<span>`s posicionados por cima.
+ *
+ * **Mesma física dos gráficos da tela (revisão de 2026-11-24)**:
+ * - eixo X = a janela do relatório (`domain`), não a extensão dos dados — o
+ *   período em que a estação ficou sem enviar aparece vazio;
+ * - `null` interrompe o traço (buracos inseridos por `withGaps`/`seriesToPoints`);
+ * - limites físicos por grandeza (`bounds`: umidade nunca passa de 100 %);
+ * - divisores de dia tracejados no fundo acima de 2 dias;
+ * - até 2 séries (eixo esquerdo e direito, cada um na cor da série) e o tipo
+ *   `dots` para leituras brutas ao longo do tempo (comparativos).
  */
-export interface ReportChartProps {
+export interface ReportSeries {
   points: ChartPoint[];
   color: string;
-  kind?: "line" | "bar";
-  width: number;
-  height: number;
   /** Casas decimais dos rótulos do eixo Y. */
   digits: number;
-  /** Buckets diários (`range=30d`) já são o dia em UTC — rotula sem converter pro fuso local. */
-  utcDays?: boolean;
+  /** Sufixo dos rótulos do eixo (só usado com 2 séries, para distinguir os eixos). */
+  unit?: string;
+  bounds?: { min?: number; max?: number };
 }
 
-const Y_AXIS_WIDTH = 40;
+export interface ReportChartProps {
+  series: ReportSeries[];
+  kind?: "line" | "bar" | "dots";
+  width: number;
+  height: number;
+  /** Janela do eixo X (epoch ms). Omitida = extensão dos dados. */
+  domain?: readonly [number, number];
+  /** Barras: duração de cada bucket (ms), para a largura da barra. */
+  bucketMs?: number;
+}
+
+const AXIS_WIDTH = 40;
 const X_AXIS_HEIGHT = 18;
 const Y_TICKS = 4;
-const X_TICKS = 5;
-const MS_PER_HOUR = 60 * 60 * 1000;
 
-function pad(value: number): string {
-  return value.toString().padStart(2, "0");
-}
-
-function formatXLabel(t: number, spanMs: number, utcDays: boolean): string {
-  const date = new Date(t);
-  if (utcDays) {
-    return `${pad(date.getUTCDate())}/${pad(date.getUTCMonth() + 1)}`;
-  }
-  if (spanMs <= 36 * MS_PER_HOUR) {
-    return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  }
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`;
+function hasValue(point: ChartPoint): point is { t: number; v: number } {
+  return point.v !== null && Number.isFinite(point.v);
 }
 
 /**
- * Domínio Y com folga de 10% (linhas) ou ancorado em zero (barras); valor
- * constante ganha ±1. A folga nunca cruza o zero quando os dados não são
- * negativos: UV, umidade e chuva num eixo que desce a "-0,8" não fazem
- * sentido físico.
+ * Domínio Y com folga de 10% (linhas/pontos) ou ancorado em zero (barras);
+ * valor constante ganha ±1. A folga nunca cruza um limite físico, nem o zero
+ * quando os dados não são negativos.
  */
-function yDomain(values: number[], kind: "line" | "bar"): [number, number] {
+export function yDomain(
+  values: number[],
+  kind: "line" | "bar" | "dots",
+  bounds?: { min?: number; max?: number },
+): [number, number] {
   const min = Math.min(...values);
   const max = Math.max(...values);
 
   if (kind === "bar") {
     return [0, max > 0 ? max * 1.1 : 1];
   }
-  const floor = min >= 0 ? 0 : -Infinity;
-  if (min === max) {
-    return [Math.max(floor, min - 1), max + 1];
-  }
-  const padding = (max - min) * 0.1;
-  return [Math.max(floor, min - padding), max + padding];
+  const floor = bounds?.min ?? (min >= 0 ? 0 : -Infinity);
+  const ceiling = bounds?.max ?? Infinity;
+  const padding = min === max ? 1 : (max - min) * 0.1;
+  return [Math.max(floor, min - padding), Math.min(ceiling, max + padding)];
 }
 
 /** Segmentos contínuos (quebra o traço em cada `null`). */
@@ -87,20 +93,17 @@ function segmentsOf(points: { x: number; y: number | null }[]): { x: number; y: 
 }
 
 export function ReportChart({
-  points,
-  color,
+  series,
   kind = "line",
   width,
   height,
-  digits,
-  utcDays = false,
+  domain,
+  bucketMs,
 }: ReportChartProps) {
-  const gradientId = `report-gradient-${useId().replace(/:/g, "")}`;
-  const plotWidth = width - Y_AXIS_WIDTH;
-  const plotHeight = height - X_AXIS_HEIGHT;
-  const values = points.map((point) => point.v).filter((v): v is number => v !== null);
+  const gradientPrefix = `report-gradient-${useId().replace(/:/g, "")}`;
+  const visible = series.filter((s) => s.points.some(hasValue)).slice(0, 2);
 
-  if (values.length === 0) {
+  if (visible.length === 0) {
     return (
       <div
         className="flex items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-400"
@@ -111,50 +114,65 @@ export function ReportChart({
     );
   }
 
-  const [yMin, yMax] = yDomain(values, kind);
-  const tMin = points[0]!.t;
-  const tMax = points[points.length - 1]!.t;
+  const dual = visible.length === 2;
+  const leftWidth = AXIS_WIDTH;
+  const rightWidth = dual ? AXIS_WIDTH : 0;
+  const plotWidth = width - leftWidth - rightWidth;
+  const plotHeight = height - X_AXIS_HEIGHT;
+
+  const allTimes = visible.flatMap((s) => s.points.filter(hasValue).map((point) => point.t));
+  const [tMin, tMax] = domain ?? [Math.min(...allTimes), Math.max(...allTimes)];
   const spanMs = tMax - tMin;
+  const scaleX = (t: number) => (spanMs <= 0 ? plotWidth / 2 : ((t - tMin) / spanMs) * plotWidth);
 
-  const scaleY = (v: number) => plotHeight - ((v - yMin) / (yMax - yMin)) * plotHeight;
-  const scaleX = (t: number) => (spanMs === 0 ? plotWidth / 2 : ((t - tMin) / spanMs) * plotWidth);
+  const axes = visible.map((s) => {
+    const values = s.points.filter(hasValue).map((point) => point.v);
+    const [yMin, yMax] = yDomain(values, kind, s.bounds);
+    const scaleY = (v: number) => plotHeight - ((v - yMin) / (yMax - yMin)) * plotHeight;
+    const ticks = Array.from(
+      { length: Y_TICKS },
+      (_, index) => yMin + ((yMax - yMin) * index) / (Y_TICKS - 1),
+    );
+    return { series: s, scaleY, ticks };
+  });
 
-  const yTicks = Array.from(
-    { length: Y_TICKS },
-    (_, index) => yMin + ((yMax - yMin) * index) / (Y_TICKS - 1),
-  );
-  const xTicks =
-    spanMs === 0
-      ? [tMin]
-      : Array.from({ length: X_TICKS }, (_, index) => tMin + (spanMs * index) / (X_TICKS - 1));
+  const xTicks = spanMs > 0 ? timeTicks(tMin, tMax) : [tMin];
+  const boundaries = dayBoundaries(tMin, tMax);
+  const barWidth =
+    bucketMs && spanMs > 0
+      ? Math.max(1, Math.min(18, (bucketMs / spanMs) * plotWidth * 0.7))
+      : Math.max(1, Math.min(18, (plotWidth / Math.max(1, allTimes.length)) * 0.7));
 
-  const barSlot = plotWidth / points.length;
-  const barWidth = Math.max(1, Math.min(barSlot * 0.7, 18));
-
-  const scaled = points.map((point) => ({
-    x: scaleX(point.t),
-    y: point.v === null ? null : scaleY(point.v),
-  }));
-  const segments = segmentsOf(scaled);
-  const lastPoint = segments.at(-1)?.at(-1);
+  const primary = axes[0]!;
+  const allZero =
+    kind === "bar" && Math.max(...primary.series.points.filter(hasValue).map((p) => p.v)) <= 0;
 
   return (
     <div className="relative" style={{ width, height }}>
-      {yTicks.map((tick) => (
-        <span
-          key={`y-${tick}`}
-          className="absolute text-[9px] leading-none text-slate-400"
-          style={{ left: 0, width: Y_AXIS_WIDTH - 6, top: scaleY(tick) - 4, textAlign: "right" }}
-        >
-          {formatNumber(tick, digits)}
-        </span>
-      ))}
+      {axes.map((axis, axisIndex) =>
+        axis.ticks.map((tick) => (
+          <span
+            key={`y-${axisIndex}-${tick}`}
+            className="absolute text-[9px] leading-none whitespace-nowrap"
+            style={{
+              top: axis.scaleY(tick) - 4,
+              width: AXIS_WIDTH - 6,
+              textAlign: axisIndex === 0 ? "right" : "left",
+              left: axisIndex === 0 ? 0 : leftWidth + plotWidth + 6,
+              color: dual ? axis.series.color : "#94a3b8",
+            }}
+          >
+            {formatNumber(tick, axis.series.digits)}
+            {dual && axis.series.unit ? ` ${axis.series.unit}` : ""}
+          </span>
+        )),
+      )}
 
-      {kind === "bar" && Math.max(...values) <= 0 ? (
+      {allZero ? (
         <span
           className="absolute text-[10px] text-slate-400"
           style={{
-            left: Y_AXIS_WIDTH,
+            left: leftWidth,
             width: plotWidth,
             top: plotHeight / 2 - 6,
             textAlign: "center",
@@ -168,94 +186,138 @@ export function ReportChart({
         width={plotWidth}
         height={plotHeight}
         viewBox={`0 0 ${plotWidth} ${plotHeight}`}
-        style={{ position: "absolute", left: Y_AXIS_WIDTH, top: 0, overflow: "visible" }}
+        style={{ position: "absolute", left: leftWidth, top: 0, overflow: "visible" }}
         aria-hidden="true"
       >
         <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.02" />
-          </linearGradient>
+          {axes.map((axis, index) => (
+            <linearGradient
+              key={index}
+              id={`${gradientPrefix}-${index}`}
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="1"
+            >
+              <stop offset="0%" stopColor={axis.series.color} stopOpacity={dual ? 0.12 : 0.28} />
+              <stop offset="100%" stopColor={axis.series.color} stopOpacity="0.02" />
+            </linearGradient>
+          ))}
         </defs>
 
-        {yTicks.map((tick) => (
+        {primary.ticks.map((tick) => (
           <line
             key={`grid-${tick}`}
             x1={0}
             x2={plotWidth}
-            y1={scaleY(tick)}
-            y2={scaleY(tick)}
+            y1={primary.scaleY(tick)}
+            y2={primary.scaleY(tick)}
             stroke="#e2e8f0"
             strokeWidth={1}
-            strokeDasharray={tick === yTicks[0] ? undefined : "3 4"}
+            strokeDasharray={tick === primary.ticks[0] ? undefined : "3 4"}
           />
         ))}
 
-        {kind === "bar"
-          ? points.map((point, index) =>
-              point.v === null || point.v <= 0 ? null : (
+        {/* Divisores de dia (meia-noite local), no fundo. */}
+        {boundaries.map((t) => (
+          <line
+            key={`day-${t}`}
+            data-day-divider=""
+            x1={scaleX(t)}
+            x2={scaleX(t)}
+            y1={0}
+            y2={plotHeight}
+            stroke="#cbd5e1"
+            strokeWidth={0.75}
+            strokeDasharray="2 3"
+          />
+        ))}
+
+        {axes.map((axis, axisIndex) => {
+          const { color } = axis.series;
+          const points = axis.series.points;
+
+          if (kind === "bar") {
+            return points.map((point) =>
+              !hasValue(point) || point.v <= 0 ? null : (
                 <rect
-                  key={point.t}
-                  x={barSlot * index + (barSlot - barWidth) / 2}
-                  y={scaleY(point.v)}
+                  key={`bar-${axisIndex}-${point.t}`}
+                  x={scaleX(point.t) - barWidth / 2}
+                  y={axis.scaleY(point.v)}
                   width={barWidth}
-                  height={plotHeight - scaleY(point.v)}
+                  height={plotHeight - axis.scaleY(point.v)}
                   rx={Math.min(3, barWidth / 2)}
                   fill={color}
                   fillOpacity={0.85}
                 />
               ),
-            )
-          : segments.map((segment) => {
-              const line = segment
-                .map((p, index) => `${index === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-                .join(" ");
-              const first = segment[0]!;
-              const last = segment[segment.length - 1]!;
-              const area = `${line} L${last.x.toFixed(1)},${plotHeight} L${first.x.toFixed(1)},${plotHeight} Z`;
-              return (
-                <g key={`${first.x}-${first.y}`}>
-                  <path d={area} fill={`url(#${gradientId})`} />
-                  <path
-                    d={line}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={2}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
-                </g>
-              );
-            })}
+            );
+          }
 
-        {kind === "line" && lastPoint ? (
-          <circle
-            cx={lastPoint.x}
-            cy={lastPoint.y}
-            r={3.5}
-            fill="#ffffff"
-            stroke={color}
-            strokeWidth={2}
-          />
-        ) : null}
+          if (kind === "dots") {
+            return points
+              .filter(hasValue)
+              .map((point) => (
+                <circle
+                  key={`dot-${axisIndex}-${point.t}`}
+                  cx={scaleX(point.t)}
+                  cy={axis.scaleY(point.v)}
+                  r={1.4}
+                  fill={color}
+                  fillOpacity={0.8}
+                />
+              ));
+          }
+
+          const segments = segmentsOf(
+            points.map((point) => ({
+              x: scaleX(point.t),
+              y: hasValue(point) ? axis.scaleY(point.v) : null,
+            })),
+          );
+          return segments.map((segment) => {
+            const line = segment
+              .map((p, index) => `${index === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+              .join(" ");
+            const first = segment[0]!;
+            const last = segment[segment.length - 1]!;
+            const area = `${line} L${last.x.toFixed(1)},${plotHeight} L${first.x.toFixed(1)},${plotHeight} Z`;
+            return (
+              <g key={`seg-${axisIndex}-${first.x}`}>
+                <path d={area} fill={`url(#${gradientPrefix}-${axisIndex})`} />
+                <path
+                  d={line}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={dual ? 1.6 : 2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
+                {segment.length === 1 ? (
+                  <circle cx={first.x} cy={first.y} r={2.5} fill={color} />
+                ) : null}
+              </g>
+            );
+          });
+        })}
       </svg>
 
       {xTicks.map((tick, index) => {
-        const isFirst = index === 0 && xTicks.length > 1;
-        const isLast = index === xTicks.length - 1 && xTicks.length > 1;
-        const x = Y_AXIS_WIDTH + scaleX(tick);
+        const x = leftWidth + scaleX(tick);
+        const isFirst = index === 0 && scaleX(tick) < 20;
+        const isLast = index === xTicks.length - 1 && scaleX(tick) > plotWidth - 20;
         return (
           <span
             key={`x-${tick}`}
-            className="absolute text-[9px] leading-none text-slate-400"
+            className="absolute text-[9px] leading-none whitespace-nowrap text-slate-400"
             style={{
               top: plotHeight + 6,
               left: isLast ? undefined : x,
-              right: isLast ? 0 : undefined,
+              right: isLast ? rightWidth : undefined,
               transform: isFirst || isLast ? undefined : "translateX(-50%)",
             }}
           >
-            {formatXLabel(tick, spanMs, utcDays)}
+            {formatTick(tick, spanMs)}
           </span>
         );
       })}

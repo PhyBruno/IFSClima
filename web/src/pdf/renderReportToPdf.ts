@@ -25,6 +25,11 @@ import { PAGE_HEIGHT_PX, PAGE_WIDTH_PX } from "./ReportLayout";
 export interface RenderReportOptions {
   fileName: string;
   title: string;
+  /**
+   * Folhas desenhadas direto no PDF depois das capturadas (ex.: a tabela de
+   * leituras do Histórico em texto vetorial, `drawReadingsTable`).
+   */
+  appendPages?: (pdf: jsPDF) => void | Promise<void>;
 }
 
 const A4_WIDTH_MM = 210;
@@ -58,7 +63,7 @@ async function waitForAssets(container: HTMLElement): Promise<void> {
 
 export async function renderReportToPdf(
   report: ReactElement,
-  { fileName, title }: RenderReportOptions,
+  { fileName, title, appendPages }: RenderReportOptions,
 ): Promise<void> {
   const host = document.createElement("div");
   host.setAttribute("aria-hidden", "true");
@@ -103,6 +108,7 @@ export async function renderReportToPdf(
       );
     }
 
+    await appendPages?.(pdf);
     pdf.save(fileName);
   } finally {
     root.unmount();
