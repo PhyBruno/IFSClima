@@ -1,5 +1,5 @@
 import type { HistoryReading, LatestReading, Metric, SeriesResponse } from "../api-client";
-import { MS_PER_DAY, MS_PER_HOUR } from "../utils/timeAxis";
+import { MS_PER_DAY, MS_PER_HOUR, usesRawDots } from "../utils/timeAxis";
 import { periodLabel, type Period } from "../utils/period";
 import { getUvCriticality, type UvCriticality } from "../utils/uvIndex";
 import { ReportChart, type ReportSeries } from "./ReportChart";
@@ -312,6 +312,8 @@ export function DashboardReport({
       ? "cada ponto é a média de um dia"
       : "cada ponto é a média de uma hora";
   const domain = windowOf(series.temperature_c);
+  // Mesma regra da tela: leituras brutas até 1 dia, médias acima disso.
+  const rawDots = usesRawDots(series.temperature_c?.from, series.temperature_c?.to);
 
   return (
     <>
@@ -402,7 +404,9 @@ export function DashboardReport({
               metrics={metrics}
               kind="dots"
               series={pairSeries(metrics, (metric) =>
-                sampleEvery(readingsToPoints(readings, metric), REPORT_MAX_DOTS),
+                rawDots
+                  ? sampleEvery(readingsToPoints(readings, metric), REPORT_MAX_DOTS)
+                  : seriesToPoints(series[metric]),
               )}
               domain={domain}
               width={halfWidth}

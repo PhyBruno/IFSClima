@@ -188,3 +188,20 @@ export const RAW_MAX_GAP_MS = MS_PER_HOUR;
 export function maxGapFor(granularity: BucketGranularity): number {
   return granularity === "raw" ? RAW_MAX_GAP_MS : bucketDurationMs(granularity) * 1.5;
 }
+
+/**
+ * Até este intervalo (o "24 h", com folga), os gráficos de pontos mostram
+ * cada leitura bruta. Acima de 1 dia, são milhares de pontos que viram uma
+ * mancha: os pontos passam a ser as MESMAS médias por hora/dia do gráfico de
+ * linha (pedido do usuário, 2026-11-24).
+ */
+export const RAW_DOTS_MAX_SPAN_MS = 36 * MS_PER_HOUR;
+
+/** `true` quando a janela `[from, to]` (ISO) é curta o bastante para pontos de leitura bruta. */
+export function usesRawDots(from: string | undefined, to: string | undefined): boolean {
+  if (from === undefined || to === undefined) {
+    return false;
+  }
+  const span = Date.parse(to) - Date.parse(from);
+  return Number.isFinite(span) && span <= RAW_DOTS_MAX_SPAN_MS;
+}

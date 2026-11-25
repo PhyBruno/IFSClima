@@ -9,7 +9,7 @@ import { ConnectionBanner } from "./ConnectionBanner";
 import { seriesQueryOptions } from "../hooks/useSeries";
 import { useRawReadings } from "../hooks/useRawReadings";
 import type { HistoryReading, Metric, SeriesResponse } from "../api-client";
-import type { TimePoint } from "../utils/timeAxis";
+import { usesRawDots, type TimePoint } from "../utils/timeAxis";
 import {
   DASHBOARD_MAX_RANGE_DAYS,
   PRESET_RANGES,
@@ -270,9 +270,10 @@ interface PairMetric {
 }
 
 /**
- * Um par comparativo: as 2 grandezas AO LONGO DO TEMPO, em dois cards — as
- * médias por hora/dia em linhas e as leituras brutas em pontos (pedido do
- * usuário, 2026-11-24, que substituiu as dispersões "Y em função de X").
+ * Um par comparativo: as 2 grandezas AO LONGO DO TEMPO, em dois cards —
+ * linhas com as médias por hora/dia e pontos (leituras brutas até 1 dia,
+ * as mesmas médias acima disso). Pedido do usuário, 2026-11-24, que
+ * substituiu as dispersões "Y em função de X".
  */
 export interface ComparisonPair {
   key: string;
@@ -378,7 +379,11 @@ export function ChartsSection({ className = "", now }: ChartsSectionProps) {
   // API de séries (a da temperatura), para pontos e linhas cobrirem o mesmo
   // intervalo.
   const reference = resultByMetric.get("temperature_c")?.data;
-  const raw = useRawReadings(reference?.from, reference?.to);
+  // Até 1 dia: cada ponto é uma leitura bruta. Acima: os pontos são as
+  // mesmas médias por hora/dia das linhas (pedido do usuário, 2026-11-24 —
+  // milhares de leituras viravam uma mancha).
+  const rawDots = usesRawDots(reference?.from, reference?.to);
+  const raw = useRawReadings(reference?.from, reference?.to, rawDots);
 
   // Banner de reconexão (UI-10): erro na busca atual, mas ainda com o último
   // dado bom em cache — nunca esconde os gráficos, só avisa.
@@ -478,8 +483,9 @@ export function ChartsSection({ className = "", now }: ChartsSectionProps) {
       </div>
 
       {/* "Comparativos": 3 pares de grandezas, cada um em 2 cards — médias
-          em linhas (em cima) e leituras brutas em pontos (embaixo), tudo
-          ao longo do tempo (pedido do usuário, 2026-11-24). */}
+          em linhas (em cima) e pontos (embaixo), tudo ao longo do tempo
+          (pedido do usuário, 2026-11-24). Os pontos são leituras brutas
+          até 1 dia e as médias por hora/dia acima disso. */}
       <h2 className="font-heading text-base font-semibold">Comparativos</h2>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {COMPARISON_PAIRS.map((pair) => {
@@ -488,7 +494,15 @@ export function ChartsSection({ className = "", now }: ChartsSectionProps) {
           );
           const pairReference = resultByMetric.get(pair.series[0].metric)?.data;
           // Falha ao buscar as leituras: card vazio (EmptyState), não skeleton eterno.
-          const dots = raw.data ? pairDotSeries(pair, raw.data.readings) : raw.isError ? [] : null;
+          const dots = !rawDots
+            ? linesPending
+              ? null
+              : pairLineSeries(pair, resultByMetric)
+            : raw.data
+              ? pairDotSeries(pair, raw.data.readings)
+              : raw.isError
+                ? []
+                : null;
 
           return (
             <div key={pair.key} data-testid="comparison-column" className="flex flex-col gap-3">
@@ -511,7 +525,7 @@ export function ChartsSection({ className = "", now }: ChartsSectionProps) {
                   variant="dots"
                   series={dots}
                   domain={seriesDomain(reference)}
-                  granularity="raw"
+                  granularity={rawDots ? "raw" : (pairReference?.bucket ?? "hour")}
                 />
               )}
             </div>

@@ -86,6 +86,32 @@ describe("DashboardReport", () => {
 });
 
 describe("DashboardReport — comparativos", () => {
+  it("acima de 1 dia, os pontos são as médias por hora/dia (as mesmas das linhas), não as leituras", () => {
+    const week = {
+      ...seriesFixture,
+      range: "7d" as const,
+      from: "2026-07-16T15:00:00.000Z",
+      to: "2026-07-23T15:00:00.000Z",
+    };
+    const manyReadings = Array.from({ length: 5 }, () => historyFixture.readings[0]!);
+    const { container } = render(
+      <DashboardReport
+        latest={latestFixture}
+        series={{
+          temperature_c: week,
+          humidity_pct: { ...week, metric: "humidity_pct" },
+          pressure_hpa: { ...week, metric: "pressure_hpa" },
+        }}
+        readings={manyReadings}
+        period={{ range: "7d" }}
+        generatedAt={GENERATED_AT}
+      />,
+    );
+
+    // 2 buckets × 2 grandezas × 3 cards de pontos — não 5 leituras × 2 × 3.
+    expect(pages(container)[2]!.querySelectorAll("circle")).toHaveLength(12);
+  });
+
   it("página 3 com os 3 pares, cada um em linhas (médias) e pontos (leituras)", () => {
     const { container } = render(
       <DashboardReport

@@ -110,6 +110,30 @@ describe("exportDashboardToPdf — comparativos", () => {
     expect(props.readings).toEqual(historyFixture.readings);
   });
 
+  it("acima de 1 dia não busca leituras brutas (os pontos usam as médias das séries)", async () => {
+    let rawCalls = 0;
+    server.use(
+      http.get("/api/v1/readings/series", () =>
+        HttpResponse.json({
+          ...seriesFixture,
+          range: "7d",
+          from: "2026-07-16T15:00:00.000Z",
+          to: "2026-07-23T15:00:00.000Z",
+        }),
+      ),
+      http.get("/api/v1/readings", () => {
+        rawCalls += 1;
+        return HttpResponse.json(historyFixture);
+      }),
+    );
+    const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    await exportDashboardToPdf({ queryClient, period: { range: "7d" }, generatedAt: GENERATED_AT });
+
+    expect(rawCalls).toBe(0);
+    expect(lastReport<DashboardReportProps>().props.readings).toEqual([]);
+  });
+
   it("falha nas leituras brutas não impede o PDF (pontos saem vazios)", async () => {
     server.use(http.get("/api/v1/readings", () => new HttpResponse(null, { status: 500 })));
     const queryClient = createQueryClient({ defaultOptions: { queries: { retry: false } } });

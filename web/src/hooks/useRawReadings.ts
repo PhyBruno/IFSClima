@@ -12,16 +12,18 @@ export function rawReadingsQueryKey(from: string | undefined, to: string | undef
  *
  * `from`/`to` vêm da janela já resolvida pela API de séries
  * (`SeriesResponse.from/to`), para os pontos cobrirem exatamente o mesmo
- * intervalo das linhas. Sem janela ainda, a query fica desabilitada.
+ * intervalo das linhas. Sem janela ainda (ou com `enabled` falso, quando
+ * os pontos usam as médias), a query fica desabilitada.
  */
 export function useRawReadings(
   from: string | undefined,
   to: string | undefined,
+  enabled = true,
 ): UseQueryResult<AllReadingsResult> {
   return useQuery({
     queryKey: rawReadingsQueryKey(from, to),
     queryFn: () => fetchAllReadings({ from, to }),
-    enabled: from !== undefined && to !== undefined,
+    enabled: enabled && from !== undefined && to !== undefined,
     placeholderData: keepPreviousData,
   });
 }

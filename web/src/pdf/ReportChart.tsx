@@ -21,7 +21,7 @@ import { formatNumber, type ChartPoint } from "./reportData";
  * - limites físicos por grandeza (`bounds`: umidade nunca passa de 100 %);
  * - divisores de dia tracejados no fundo acima de 2 dias;
  * - até 2 séries (eixo esquerdo e direito, cada um na cor da série) e o tipo
- *   `dots` para leituras brutas ao longo do tempo (comparativos).
+ *   `dots` para pontos ao longo do tempo (comparativos).
  */
 export interface ReportSeries {
   points: ChartPoint[];
@@ -262,9 +262,10 @@ export function ReportChart({
                   key={`dot-${axisIndex}-${point.t}`}
                   cx={scaleX(point.t)}
                   cy={axis.scaleY(point.v)}
-                  r={1.4}
+                  r={1.9}
                   fill={color}
-                  fillOpacity={0.8}
+                  stroke="#ffffff"
+                  strokeWidth={0.6}
                 />
               ));
           }

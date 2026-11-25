@@ -598,6 +598,36 @@ describe("ChartsSection (integração RTL + MSW)", () => {
       axes[1]!.forEach((tick) => expect(tick).toMatch(/hPa$/));
     });
 
+    it("acima de 1 dia (7d): os pontos são as MESMAS médias por hora das linhas, sem buscar leituras brutas", async () => {
+      window.history.replaceState(null, "", "/?range=7d");
+      const week = {
+        ...seriesFixture,
+        range: "7d" as const,
+        from: "2026-07-16T15:00:00.000Z",
+        to: "2026-07-23T15:00:00.000Z",
+      };
+      let rawCalls = 0;
+      server.use(
+        http.get("/api/v1/readings/series", ({ request }) => {
+          const metric = new URL(request.url).searchParams.get("metric");
+          return HttpResponse.json(metric === "rain_mm" ? { ...rainSeriesFixture, ...week } : week);
+        }),
+        http.get("/api/v1/readings", () => {
+          rawCalls += 1;
+          return HttpResponse.json(historyFixture);
+        }),
+      );
+
+      render(<ChartsSection />, { wrapper: createWrapper() });
+      await waitFor(() => expect(screen.getAllByTestId("chartcard")).toHaveLength(TOTAL_CARDS));
+
+      // seriesFixture: 2 buckets de hora × 2 grandezas = 4 pontos (não as leituras).
+      const card = chartCardByChart("Gráfico de pontos: Temperatura e Umidade");
+      expect(card.querySelectorAll(".recharts-scatter-symbol")).toHaveLength(4);
+      expect(rawCalls).toBe(0);
+      window.history.replaceState(null, "", "/");
+    });
+
     it("falha ao buscar as leituras brutas: card de pontos vazio, não skeleton eterno", async () => {
       server.use(http.get("/api/v1/readings", () => new HttpResponse(null, { status: 500 })));
 

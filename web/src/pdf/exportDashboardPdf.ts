@@ -15,6 +15,7 @@ import { DASHBOARD_REPORT_TITLE, DashboardReport } from "./DashboardReport";
 import { REPORT_METRICS, fileDateStamp } from "./reportData";
 import { renderReportToPdf } from "./renderReportToPdf";
 import { periodToWindow, type Period } from "../utils/period";
+import { usesRawDots } from "../utils/timeAxis";
 
 /**
  * Exporta o Painel de Monitoramento como relatório em PDF (`DashboardPage`
@@ -70,7 +71,7 @@ export async function exportDashboardToPdf({
   // mesma chave de cache do painel; sem elas, os cards de pontos saem vazios.
   const reference = series.temperature_c;
   let readings: HistoryReading[] = [];
-  if (reference) {
+  if (reference && usesRawDots(reference.from, reference.to)) {
     try {
       const raw = await queryClient.ensureQueryData({
         queryKey: rawReadingsQueryKey(reference.from, reference.to),

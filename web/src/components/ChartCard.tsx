@@ -43,7 +43,7 @@ import { EmptyState } from "./EmptyState";
  * interrompe o traço (`insertGaps` + `connectNulls={false}`).
  *
  * - **`line`**: `Area` monotônica com gradiente sutil (uma por série).
- * - **`dots`**: um ponto por valor (leituras brutas dos comparativos), sem
+ * - **`dots`**: um ponto por valor (leituras brutas até 1 dia, médias por hora/dia acima), sem
  *   ligar os pontos — pedido do usuário, 2026-11-24: "tudo ao longo do tempo".
  * - **`bar`**: barras posicionadas no tempo (chuva por hora/dia).
  * - **`total`**: UMA barra com o total do período (`totalLabel` no tooltip),
@@ -437,14 +437,25 @@ export function ChartCard({
               name={s.label}
               yAxisId={axisId(index, sharedAxis)}
               data={s.points.filter(hasValue).map((point): DotDatum => ({
-                t: point.t,
+                t: bucketCenter(point.t, granularity, xDomain),
                 v: point.v,
                 label: formatPointTime(point.t, granularity),
                 si: index,
               }))}
               fill={`var(--color-${seriesKey(index)})`}
+              // Ponto sólido com contorno da cor do fundo do card: pontos
+              // quase sobrepostos continuam círculos separados, não uma
+              // mancha translúcida "embaçada" (pedido do usuário, 2026-10-02
+              // e 2026-11-24).
               shape={(props: { cx?: number; cy?: number }) => (
-                <circle cx={props.cx} cy={props.cy} r={2} fill={s.color} fillOpacity={0.75} />
+                <circle
+                  cx={props.cx}
+                  cy={props.cy}
+                  r={2.75}
+                  fill={s.color}
+                  stroke="var(--card)"
+                  strokeWidth={1}
+                />
               )}
               isAnimationActive={false}
             />

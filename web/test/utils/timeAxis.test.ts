@@ -9,6 +9,7 @@ import {
   insertGaps,
   maxGapFor,
   timeTicks,
+  usesRawDots,
 } from "../../src/utils/timeAxis";
 
 let originalTZ: string | undefined;
@@ -113,5 +114,25 @@ describe("insertGaps / maxGapFor", () => {
     expect(maxGapFor("hour")).toBe(1.5 * MS_PER_HOUR);
     expect(maxGapFor("day")).toBe(1.5 * MS_PER_DAY);
     expect(maxGapFor("raw")).toBe(MS_PER_HOUR);
+  });
+});
+
+describe("usesRawDots (pontos brutos só até 1 dia — pedido do usuário, 2026-11-24)", () => {
+  const iso = (t: number) => new Date(t).toISOString();
+
+  it("24 h (e um dia personalizado) → leituras brutas", () => {
+    expect(usesRawDots(iso(MIDNIGHT), iso(MIDNIGHT + MS_PER_DAY))).toBe(true);
+    expect(usesRawDots(iso(MIDNIGHT), iso(MIDNIGHT + MS_PER_DAY - 1))).toBe(true);
+  });
+
+  it("acima de 1 dia (2 dias, 7d, 30d) → médias por hora/dia", () => {
+    expect(usesRawDots(iso(MIDNIGHT), iso(MIDNIGHT + 2 * MS_PER_DAY - 1))).toBe(false);
+    expect(usesRawDots(iso(MIDNIGHT), iso(MIDNIGHT + 7 * MS_PER_DAY))).toBe(false);
+  });
+
+  it("sem janela ou janela inválida → false", () => {
+    expect(usesRawDots(undefined, iso(MIDNIGHT))).toBe(false);
+    expect(usesRawDots(iso(MIDNIGHT), undefined)).toBe(false);
+    expect(usesRawDots("x", "y")).toBe(false);
   });
 });
